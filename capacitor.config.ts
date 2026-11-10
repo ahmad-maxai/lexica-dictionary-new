@@ -1,0 +1,17 @@
+import type { CapacitorConfig } from '@capacitor/cli';
+
+const config: CapacitorConfig = {
+  appId: 'com.lexica.dictionary',
+  appName: 'Lexica: Multilingual Dictionary',
+  webDir: 'dist',
+  server: {
+    androidScheme: 'https',
+  },
+  android: {
+    backgroundColor: '#FAF8F5',
+    allowMixedContent: false,
+    captureInput: true,
+  },
+};
+
+export default config;
