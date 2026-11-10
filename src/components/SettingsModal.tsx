@@ -205,32 +205,46 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#204031] text-white">
-                      GITHUB ACTIONS
+                      BUILD VERIFIED
                     </span>
                     <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">
-                      Automated Android APK Build
+                      GitHub Actions Debug APK (5.3 MB)
                     </span>
                   </div>
                   <p className="text-xs text-slate-600 dark:text-slate-300 mt-1.5 leading-relaxed">
-                    Workflow file <code className="font-mono text-[#204031] dark:text-[#7E9E88] font-bold">.github/workflows/build-android-apk.yml</code> automatically tests, compiles with JDK 21 and Gradle, and uploads the debug APK artifact to GitHub.
+                    Successfully compiled via GitHub Actions on repository <code className="font-mono text-[#204031] dark:text-[#7E9E88] font-bold">ahmad-maxai/lexica-dictionary-new</code> with JDK 21 and Gradle.
                   </p>
                 </div>
               </div>
 
-              <div className="mt-3 p-3 rounded-xl bg-white dark:bg-[#101D16] border border-slate-200 dark:border-slate-800 font-mono text-[11px] text-slate-800 dark:text-slate-200 space-y-1 overflow-x-auto">
-                <div className="text-slate-400 select-none"># Push to your GitHub repository to trigger the APK build:</div>
-                <div>git remote add origin https://github.com/&lt;your-user&gt;/&lt;your-repo&gt;.git</div>
-                <div>git push -u origin main</div>
+              <div className="mt-3.5 flex flex-wrap items-center gap-2">
+                <a
+                  href="/lexica-debug.apk"
+                  download="lexica-debug.apk"
+                  className="px-4 py-2 rounded-xl bg-[#204031] hover:bg-[#172E23] text-white text-xs font-bold flex items-center gap-2 transition-all shadow-xs cursor-pointer"
+                >
+                  <HardDriveDownload className="w-4 h-4" />
+                  <span>Download APK (5.3 MB)</span>
+                </a>
+
+                <a
+                  href="https://github.com/ahmad-maxai/lexica-dictionary-new/actions/runs/42796366306"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold flex items-center gap-1.5 transition-all"
+                >
+                  <span>View GitHub Artifact</span>
+                </a>
               </div>
 
               <div className="mt-3 pt-2.5 border-t border-[#204031]/10 dark:border-[#7E9E88]/20 text-[11px] text-slate-500 dark:text-slate-400 space-y-1">
                 <div className="font-semibold text-slate-700 dark:text-slate-300">
-                  Where to find the APK on GitHub:
+                  How to install on your Android phone:
                 </div>
-                <div>1. Go to your repository on GitHub.</div>
-                <div>2. Click the <strong>Actions</strong> tab and select the latest workflow run.</div>
-                <div>3. Scroll to <strong>Artifacts</strong> and download <strong>lexica-multilingual-dictionary-debug-apk</strong>.</div>
-                <div>4. Extract the zip and install <code>app-debug.apk</code> directly on your phone.</div>
+                <div>1. Tap &apos;Download APK (5.3 MB)&apos; above.</div>
+                <div>2. Open the downloaded file from notifications or your Files app.</div>
+                <div>3. If prompted, allow &quot;Install unknown apps&quot; for your browser.</div>
+                <div>4. Launch Lexica for 100% offline multilingual dictionary lookups!</div>
               </div>
             </div>
           </div>

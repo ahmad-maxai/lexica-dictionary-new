@@ -275,24 +275,34 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     GITHUB ACTIONS CI/CD
                   </span>
                   <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                    Native Android APK Pipeline
+                    Native Android APK (Ready for Device)
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 max-w-lg leading-relaxed">
-                  Configured via <code className="text-[#204031] dark:text-[#7E9E88] font-mono text-[11px]">.github/workflows/build-android-apk.yml</code>. Push to your repo to automatically compile and download the native debug APK artifact.
+                  Compiled via GitHub Actions with Gradle &amp; JDK 21. Real native Android debug package with 100% offline multilingual dictionaries.
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
-              <button
-                type="button"
-                onClick={onOpenSettings}
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0 w-full sm:w-auto">
+              <a
+                href="/lexica-debug.apk"
+                download="lexica-debug.apk"
                 className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-[#204031] hover:bg-[#162C22] text-white text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
               >
-                <ShieldCheck className="w-4 h-4" />
-                <span>View CI/CD & Build Setup</span>
-              </button>
+                <HardDriveDownload className="w-4 h-4" />
+                <span>Download APK (5.3 MB)</span>
+              </a>
+
+              <a
+                href="https://github.com/ahmad-maxai/lexica-dictionary-new/actions/runs/42796366306"
+                target="_blank"
+                rel="noreferrer"
+                className="w-full sm:w-auto px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all"
+              >
+                <span>GitHub Run</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </a>
             </div>
           </div>
         </div>
