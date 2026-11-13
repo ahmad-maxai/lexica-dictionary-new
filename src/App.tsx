@@ -28,6 +28,10 @@ export default function App() {
     } else {
       document.documentElement.classList.remove('dark');
     }
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) {
+      themeMeta.setAttribute('content', isDark ? '#0E1713' : '#FAF8F5');
+    }
   }, [preferences.theme]);
 
   // Handle Onboarding Completion

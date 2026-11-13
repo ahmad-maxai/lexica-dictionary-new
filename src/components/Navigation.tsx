@@ -94,7 +94,7 @@ export const Navigation: React.FC<NavigationProps> = ({
   return (
     <>
       {/* Top Application Bar (Honors Top Bar Contract on desktop & tablet) */}
-      <header className="sticky top-0 z-40 bg-[#FAF8F5]/90 dark:bg-[#122019]/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 transition-colors">
+      <header className="sticky top-0 z-40 pt-[env(safe-area-inset-top,0px)] bg-[#FAF8F5]/90 dark:bg-[#122019]/90 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-4">
           {/* Zone 1: Single text element wordmark */}
           <div
@@ -171,8 +171,8 @@ export const Navigation: React.FC<NavigationProps> = ({
       </header>
 
       {/* Mobile Fixed Bottom Navigation Bar (Pattern 1 from Mobile Design Reference) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#FAF8F5]/95 dark:bg-[#122019]/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800 transition-colors shadow-lg">
-        <div className="grid grid-cols-5 items-center h-16 pb-safe px-1 max-w-lg mx-auto">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 pb-[env(safe-area-inset-bottom,0px)] bg-[#FAF8F5]/95 dark:bg-[#122019]/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-800 transition-colors shadow-lg">
+        <div className="grid grid-cols-5 items-center h-16 px-1 max-w-lg mx-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
