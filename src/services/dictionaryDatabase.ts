@@ -3,9 +3,9 @@ import { VERIFIED_SEED_ENTRIES } from '../data/seedDictionary';
 import { DICTIONARY_ENTRIES as INITIAL_ENTRIES } from '../data/dictionaryData';
 import { MultilingualSearchEngine } from './dictionarySearchEngine';
 
-const DB_STORAGE_KEY = 'lexica_offline_database_v2';
+const DB_STORAGE_KEY = 'lexica_offline_database_v3';
 const DB_VERSION_KEY = 'lexica_offline_database_version';
-const CURRENT_DB_VERSION = '2026.2.0';
+const CURRENT_DB_VERSION = '2026.3.0';
 
 export interface LanguagePackStats {
   code: LanguageCode;
@@ -66,9 +66,14 @@ class LocalDictionaryDatabase {
       this.inMemoryCache.set(entry.id, entry);
     }
 
-    // 2. Load initial entries if not already present
+    // 2. Load complementary initial entries if not already present by ID or headword
     for (const entry of INITIAL_ENTRIES) {
-      if (!this.inMemoryCache.has(entry.id)) {
+      const alreadyHas = Array.from(this.inMemoryCache.values()).some(
+        (e) =>
+          e.sourceLang === entry.sourceLang &&
+          e.headword.trim().toLowerCase() === entry.headword.trim().toLowerCase()
+      );
+      if (!this.inMemoryCache.has(entry.id) && !alreadyHas) {
         this.inMemoryCache.set(entry.id, entry);
       }
     }

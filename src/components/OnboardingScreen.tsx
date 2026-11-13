@@ -187,7 +187,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
             <Sparkles className="w-4 h-4 text-[#D97753] shrink-0 mt-0.5" />
             <div className="text-xs text-slate-600 dark:text-slate-400">
               <span className="font-medium text-slate-800 dark:text-slate-200">{currentMeta.name}: </span>
-              {currentMeta.culturalHeritage} (Offline Pack: {currentMeta.packSizeMb} MB · {currentMeta.offlineEntriesCount.toLocaleString()} entries)
+              {currentMeta.culturalHeritage}
             </div>
           </div>
         </div>

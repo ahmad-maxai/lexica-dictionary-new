@@ -42,11 +42,11 @@ export interface ExampleSentence {
 export interface TranslationEquivalent {
   targetLang: LanguageCode;
   headword: string;
-  transliteration?: string;
-  scriptVariant?: string; // e.g., Traditional for Chinese, Ajami for Hausa
+  transliteration?: string | null;
+  scriptVariant?: string | null; // e.g., Traditional for Chinese, Ajami for Hausa
   partOfSpeech: string;
   definition: string;
-  register?: string; // Formal, Colloquial, Literary, Poetic
+  register?: string | null; // Formal, Colloquial, Literary, Poetic
   verifiedOffline: boolean;
 }
 
@@ -57,26 +57,26 @@ export interface WordEntry {
   headwordScriptVariant?: {
     label: string;
     text: string;
-  };
+  } | null;
   ipa: string;
-  audioPhoneticText?: string;
+  audioPhoneticText?: string | null;
   partOfSpeech: string;
-  genderOrClass?: string; // e.g. "masculine", "feminine", "noun class"
-  dialect?: string;
-  register?: string;
-  etymology?: string;
-  rootWord?: string; // e.g., Arabic tri-consonantal root or Proto-Bantu/Afroasiatic
-  tonePattern?: string; // Yoruba, Hausa, Chinese tones
+  genderOrClass?: string | null; // e.g. "masculine", "feminine", "noun class"
+  dialect?: string | null;
+  register?: string | null;
+  etymology?: string | null;
+  rootWord?: string | null; // e.g., Arabic tri-consonantal root or Proto-Bantu/Afroasiatic
+  tonePattern?: string | null; // Yoruba, Hausa, Chinese tones
   definition: string;
   definitionEn: string;
-  culturalNote?: string;
+  culturalNote?: string | null;
   translations: Partial<Record<LanguageCode, TranslationEquivalent[]>>;
   examples: ExampleSentence[];
   synonyms: string[];
   antonyms: string[];
   verifiedOffline: boolean;
   verificationStatus?: 'verified' | 'provisional' | 'review_required';
-  sourceAttribution?: string;
+  sourceAttribution?: string | null;
   tags: string[];
 }
 

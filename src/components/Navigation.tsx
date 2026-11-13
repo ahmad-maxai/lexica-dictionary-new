@@ -107,9 +107,6 @@ export const Navigation: React.FC<NavigationProps> = ({
             <span className="font-serif-editorial text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-50 whitespace-nowrap">
               Lexica
             </span>
-            <span className="text-[10px] text-slate-400 font-mono hidden md:inline ml-1">
-              v2026.1
-            </span>
           </div>
 
           {/* Zone 2: Desktop 5-zone navigation links */}

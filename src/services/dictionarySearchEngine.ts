@@ -364,18 +364,22 @@ export class MultilingualSearchEngine {
     }
 
     // ==========================================
-    // 5. DEFINITION SUBSTRING MATCH
+    // 5. WHOLE-WORD DEFINITION FALLBACK (ONLY IF QUERY IS >= 4 CHARS)
     // ==========================================
-    const defLower = entry.definition.toLowerCase();
-    const defEnLower = (entry.definitionEn || '').toLowerCase();
-    if (defLower.includes(queryLower) || defEnLower.includes(queryLower)) {
-      return {
-        entry,
-        score: 50,
-        matchedField: 'definition',
-        matchedTerm: entry.definition,
-        targetTranslation: primaryTargetTrans,
-      };
+    // Note: We use strict word boundary regex to prevent substring contamination
+    // (e.g. searching 'house' must not match 'household head' in Father, and 'lafiya' must not match 'Abinci')
+    if (rawQuery.length >= 4) {
+      const escapedQuery = rawQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const wordBoundaryRegex = new RegExp(`(^|\\s|[.,!?;:()"])${escapedQuery}($|\\s|[.,!?;:()"])`, 'i');
+      if (wordBoundaryRegex.test(entry.definition) || (entry.definitionEn && wordBoundaryRegex.test(entry.definitionEn))) {
+        return {
+          entry,
+          score: 30, // Low fallback score so headwords and translations always precede
+          matchedField: 'definition',
+          matchedTerm: entry.definition,
+          targetTranslation: primaryTargetTrans,
+        };
+      }
     }
 
     return null;
@@ -392,7 +396,23 @@ export class MultilingualSearchEngine {
     targetLang: LanguageCode,
     partOfSpeech: string = 'all'
   ): WordEntry[] {
-    const results: SearchMatchResult[] = [];
+    const rawQuery = query.trim();
+
+    // BROWSE MODE: If query is empty, return direct source language entries sorted alphabetically
+    if (!rawQuery) {
+      const browseList = entries.filter((e) => {
+        if (partOfSpeech !== 'all' && !e.partOfSpeech.toLowerCase().includes(partOfSpeech.toLowerCase())) {
+          return false;
+        }
+        return e.sourceLang === sourceLang && !!e.translations[targetLang]?.length;
+      });
+
+      browseList.sort((a, b) => a.headword.localeCompare(b.headword));
+      return browseList;
+    }
+
+    const matches: SearchMatchResult[] = [];
+    const seenConcepts = new Set<string>();
 
     for (const entry of entries) {
       // Rule 1: Part of speech filter
@@ -414,17 +434,42 @@ export class MultilingualSearchEngine {
       // Check match
       const match = this.matchesQuery(entry, query, sourceLang, targetLang);
       if (match) {
-        // If entry is from targetLang, adjust score slightly below direct source
+        // If entry is from targetLang, prioritize direct source entries unless targetLang was an exact match
         if (!isDirectSource) {
-          match.score -= 5;
+          if (match.score < 95) {
+            match.score -= 10;
+          }
         }
-        results.push(match);
+        matches.push(match);
       }
     }
 
-    // Sort by highest score descending
-    results.sort((a, b) => b.score - a.score);
+    // Filter out definition matches if direct headword/translation matches exist
+    const hasStrongMatches = matches.some((m) => m.score >= 70);
+    const filteredMatches = hasStrongMatches
+      ? matches.filter((m) => m.matchedField !== 'definition')
+      : matches;
 
-    return results.map((r) => r.entry);
+    // Sort by highest score descending
+    filteredMatches.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      // If scores equal, prefer direct source language entry
+      if (a.entry.sourceLang === sourceLang && b.entry.sourceLang !== sourceLang) return -1;
+      if (b.entry.sourceLang === sourceLang && a.entry.sourceLang !== sourceLang) return 1;
+      return a.entry.headword.localeCompare(b.entry.headword);
+    });
+
+    // Deduplicate: if an entry has score >= 80, avoid showing its reverse counterpart
+    const results: WordEntry[] = [];
+    const seenHeadwords = new Set<string>();
+
+    for (const m of filteredMatches) {
+      const normH = m.entry.headword.toLowerCase().replace(/[\s\-\/]/g, '');
+      if (seenHeadwords.has(normH)) continue;
+      seenHeadwords.add(normH);
+      results.push(m.entry);
+    }
+
+    return results;
   }
 }

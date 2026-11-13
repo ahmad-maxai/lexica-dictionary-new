@@ -12,6 +12,7 @@ import {
   X,
   ShieldCheck,
   ChevronDown,
+  ArrowRight,
 } from 'lucide-react';
 import { audioService } from '../services/audioService';
 
@@ -39,6 +40,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
   const [query, setQuery] = useState(initialQuery);
   const [selectedPartOfSpeech, setSelectedPartOfSpeech] = useState<string>('all');
   const [selectedDialect, setSelectedDialect] = useState<string>('all');
+  const [selectedLetter, setSelectedLetter] = useState<string>('all');
   const [isSwapping, setIsSwapping] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -47,6 +49,10 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
       setQuery(initialQuery);
     }
   }, [initialQuery]);
+
+  useEffect(() => {
+    setSelectedLetter('all');
+  }, [sourceLang]);
 
   const sourceMeta = LANGUAGES[sourceLang];
   const targetMeta = LANGUAGES[targetLang];
@@ -68,6 +74,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
 
   const handleClearQuery = () => {
     setQuery('');
+    setSelectedLetter('all');
     if (searchInputRef.current) {
       searchInputRef.current.focus();
     }
@@ -80,17 +87,62 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
     }
   };
 
+  // Letters available in the current source language dataset
+  const availableLetters = useMemo(() => {
+    const entries = dictionaryDb.getEntriesByLanguage(sourceLang);
+    const letters = new Set<string>();
+    for (const e of entries) {
+      const cleanH = e.headword.replace(/^['"‘“\s]+/, '');
+      if (cleanH.length > 0) {
+        const first = cleanH.charAt(0).toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        if (first && first.trim()) letters.add(first);
+      }
+    }
+    return Array.from(letters).sort((a, b) => a.localeCompare(b));
+  }, [sourceLang]);
+
   // Filter dictionary entries using robust MultilingualSearchEngine & dictionaryDb
   const filteredEntries = useMemo(() => {
-    return dictionaryDb.search(query, sourceLang, targetLang, selectedPartOfSpeech);
-  }, [query, sourceLang, targetLang, selectedPartOfSpeech]);
+    let results = dictionaryDb.search(query, sourceLang, targetLang, selectedPartOfSpeech);
+    if (!query.trim() && selectedLetter !== 'all') {
+      results = results.filter((e) => {
+        const cleanH = e.headword.replace(/^['"‘“\s]+/, '');
+        const first = cleanH.charAt(0).toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return first === selectedLetter;
+      });
+    }
+    return results;
+  }, [query, sourceLang, targetLang, selectedPartOfSpeech, selectedLetter]);
+
+  // Cross-language detection: check if the query exists in another language pack
+  const crossLanguageMatch = useMemo(() => {
+    if (!query.trim() || filteredEntries.length > 0) return null;
+    const all = dictionaryDb.getAllEntries();
+    const cleanQ = query.trim().toLowerCase();
+    const otherEntry = all.find(
+      (e) =>
+        e.sourceLang !== sourceLang &&
+        (e.headword.toLowerCase() === cleanQ ||
+          e.headword.toLowerCase().startsWith(cleanQ))
+    );
+    if (!otherEntry) return null;
+    return {
+      entry: otherEntry,
+      lang: LANGUAGES[otherEntry.sourceLang],
+    };
+  }, [query, filteredEntries, sourceLang]);
+
+  // Check language pack availability
+  const sourcePackCount = useMemo(() => {
+    return dictionaryDb.getEntriesByLanguage(sourceLang).length;
+  }, [sourceLang]);
 
   const partsOfSpeech = ['all', 'noun', 'verb', 'adjective', 'phrase'];
 
   return (
     <div className="pb-24 sm:pb-16 text-slate-900 dark:text-slate-100 transition-colors">
       {/* Top Language Direction Control Bar */}
-      <div className="sticky top-0 z-30 bg-[#FAF8F5]/90 dark:bg-[#122019]/90 backdrop-blur-md px-4 sm:px-6 py-3 border-b border-slate-200/80 dark:border-slate-800 transition-colors">
+      <div className="bg-[#FAF8F5]/90 dark:bg-[#122019]/90 px-4 sm:px-6 py-3 border-b border-slate-200/80 dark:border-slate-800 transition-colors">
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
           {/* Source Language Picker */}
           <div className="flex-1">
@@ -224,6 +276,40 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
           </div>
         </div>
 
+        {/* Alphabet Browse Bar (when browsing without search query) */}
+        {!query.trim() && availableLetters.length > 1 && (
+          <div className="flex items-center gap-1 overflow-x-auto pb-1.5 scrollbar-none text-xs">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0 mr-1">
+              Browse A–Z:
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedLetter('all')}
+              className={`h-7 px-2.5 rounded-lg font-semibold transition-all shrink-0 cursor-pointer ${
+                selectedLetter === 'all'
+                  ? 'bg-[#204031] text-white'
+                  : 'bg-white dark:bg-[#162720] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-slate-300'
+              }`}
+            >
+              All
+            </button>
+            {availableLetters.map((letter) => (
+              <button
+                key={letter}
+                type="button"
+                onClick={() => setSelectedLetter(letter)}
+                className={`min-w-[28px] h-7 px-1.5 rounded-lg font-semibold transition-all shrink-0 cursor-pointer ${
+                  selectedLetter === letter
+                    ? 'bg-[#204031] text-white shadow-xs'
+                    : 'bg-white dark:bg-[#162720] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-[#204031]'
+                }`}
+              >
+                {letter}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Results List */}
         <div className="space-y-3 pt-2">
           {filteredEntries.length > 0 ? (
@@ -342,23 +428,58 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                       )}
                     </div>
 
-                    <div className="flex items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
-                      <ShieldCheck className="w-3 h-3" />
-                      <span>Verified Offline</span>
-                    </div>
+                    <span className="text-[11px] text-[#345E4C] dark:text-[#7E9E88] font-medium flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+                      <span>View entry</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </span>
                   </div>
                 </div>
               );
             })
           ) : (
-            <div className="py-12 px-4 text-center rounded-2xl bg-white dark:bg-[#15231D] border border-dashed border-slate-200 dark:border-slate-800">
-              <Search className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
-              <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                No verified entries found for “{query}”
-              </h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1 leading-relaxed">
-                Try searching without diacritics, check another spelling, or switch language pairs above. We never fabricate unverified translations.
-              </p>
+            <div className="py-12 px-4 text-center rounded-2xl bg-white dark:bg-[#15231D] border border-dashed border-slate-200 dark:border-slate-800 space-y-3">
+              <Search className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto" />
+              {sourcePackCount === 0 ? (
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                    No dictionary entries installed for {sourceMeta.name}
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1 leading-relaxed">
+                    The {sourceMeta.name} pack is currently empty. Please switch to another source language.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                    Word not found for “{query}”
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1 leading-relaxed">
+                    No matching entry in {sourceMeta.name} → {targetMeta.name}. Check spelling or try a root form without diacritics.
+                  </p>
+                </div>
+              )}
+
+              {crossLanguageMatch && (
+                <div className="mt-3 p-3.5 rounded-xl bg-[#EEF4F0] dark:bg-[#182C22] border border-[#204031]/20 max-w-md mx-auto text-left flex items-center justify-between gap-3">
+                  <div>
+                    <span className="text-[10px] font-bold text-[#204031] dark:text-[#7E9E88] uppercase tracking-wider block">
+                      Found in another language
+                    </span>
+                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                      “{crossLanguageMatch.entry.headword}” exists in {crossLanguageMatch.lang.name}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onSetLanguages(crossLanguageMatch.entry.sourceLang, targetLang);
+                      setQuery(crossLanguageMatch.entry.headword);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-[#204031] text-white text-xs font-semibold shrink-0 cursor-pointer hover:bg-[#152B21] transition-all"
+                  >
+                    Switch to {crossLanguageMatch.lang.name}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

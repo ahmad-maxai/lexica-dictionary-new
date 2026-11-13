@@ -18,7 +18,7 @@ class AudioPronunciationService {
   }
 
   // Play acoustic tone curve honoring linguistic tone systems (Yoruba High/Mid/Low, Chinese 1-4, Hausa falling/rising)
-  public playToneContour(tonePattern: string = 'mid-high'): void {
+  public playToneContour(tonePattern?: string | null): void {
     const ctx = this.getAudioContext();
     if (!ctx) return;
 
@@ -29,14 +29,16 @@ class AudioPronunciationService {
 
       osc.type = 'sine';
 
+      const pattern = (tonePattern || 'mid-high').toLowerCase();
+
       // Determine pitch contour
-      if (tonePattern.toLowerCase().includes('high')) {
+      if (pattern.includes('high')) {
         osc.frequency.setValueAtTime(320, now);
         osc.frequency.exponentialRampToValueAtTime(392, now + 0.25);
-      } else if (tonePattern.toLowerCase().includes('low')) {
+      } else if (pattern.includes('low')) {
         osc.frequency.setValueAtTime(220, now);
         osc.frequency.exponentialRampToValueAtTime(174, now + 0.28);
-      } else if (tonePattern.toLowerCase().includes('falling')) {
+      } else if (pattern.includes('falling')) {
         osc.frequency.setValueAtTime(330, now);
         osc.frequency.exponentialRampToValueAtTime(220, now + 0.3);
       } else {
@@ -60,7 +62,7 @@ class AudioPronunciationService {
     }
   }
 
-  public speak(text: string, lang: LanguageCode, tonePattern?: string): Promise<boolean> {
+  public speak(text: string, lang: LanguageCode, tonePattern?: string | null): Promise<boolean> {
     return new Promise((resolve) => {
       if (typeof window === 'undefined') {
         resolve(false);
