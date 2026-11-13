@@ -1,19 +1,15 @@
 import React, { useState } from 'react';
 import { LanguageCode, InstalledPack } from '../types/dictionary';
-import { LANGUAGES, LANGUAGE_LIST } from '../data/languages';
+import { LANGUAGE_LIST } from '../data/languages';
 import { dictionaryDb } from '../services/dictionaryDatabase';
 import {
   Layers,
   HardDriveDownload,
   CheckCircle2,
-  AlertCircle,
   RefreshCw,
-  Trash2,
-  ShieldCheck,
   ChevronDown,
   ChevronUp,
-  Globe2,
-  Sparkles,
+  Database,
 } from 'lucide-react';
 
 interface LanguageLibraryScreenProps {
@@ -25,27 +21,29 @@ interface LanguageLibraryScreenProps {
 export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
   installedPacks,
   onTogglePack,
-  onSetLanguages,
 }) => {
   const [expandedLang, setExpandedLang] = useState<LanguageCode | null>('ha');
   const [downloadingCode, setDownloadingCode] = useState<LanguageCode | null>(null);
 
-  // Compute total offline storage utilized
-  const totalInstalledSize = Object.entries(installedPacks).reduce((sum, [code, pack]) => {
-    if (pack.installed) {
-      return sum + (LANGUAGES[code as LanguageCode]?.packSizeMb || 0);
-    }
-    return sum;
-  }, 0);
+  const liveStats = dictionaryDb.getLanguagePackStats();
 
-  const installedCount = Object.values(installedPacks).filter((p) => p.installed).length;
+  const totalInstalledBytes = Object.values(liveStats).reduce((sum, stat) => {
+    return stat.isInstalled ? sum + stat.actualSizeBytes : sum;
+  }, 0);
+  const totalInstalledMb = totalInstalledBytes / (1024 * 1024);
+
+  const installedCount = Object.values(liveStats).filter((s) => s.isInstalled).length;
+  const totalActiveEntries = Object.values(liveStats).reduce(
+    (sum, s) => sum + s.loadedEntriesCount,
+    0
+  );
 
   const handleDownloadToggle = (code: LanguageCode) => {
     setDownloadingCode(code);
     setTimeout(() => {
       onTogglePack(code);
       setDownloadingCode(null);
-    }, 600);
+    }, 250);
   };
 
   return (
@@ -58,16 +56,16 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
             <span>Language Pack Library</span>
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Modular offline dictionary packs, dialect registers, and orthographic profiles.
+            Bundled local dictionary datasets, orthographic profiles, and live record counts.
           </p>
         </div>
 
-        {/* Storage Summary */}
+        {/* Real Storage & Record Summary */}
         <div className="flex items-center gap-2 bg-white dark:bg-[#15231D] px-3.5 py-2 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs">
-          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+          <Database className="w-4 h-4 text-[#345E4C] dark:text-[#7E9E88]" />
           <div className="text-slate-700 dark:text-slate-300">
-            <span className="font-bold tabular-nums">{totalInstalledSize.toFixed(1)} MB</span> Offline Storage
-            <span className="text-slate-400 ml-1">({installedCount}/7 Packs Active)</span>
+            <span className="font-bold tabular-nums">{totalInstalledMb.toFixed(2)} MB</span> Local Data ·{' '}
+            <span className="font-semibold tabular-nums">{totalActiveEntries}</span> entries ({installedCount}/7 active)
           </div>
         </div>
       </div>
@@ -75,21 +73,24 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
       {/* Language Packs List */}
       <div className="space-y-4">
         {LANGUAGE_LIST.map((lang) => {
+          const stat = liveStats[lang.code];
           const pack = installedPacks[lang.code] || {
             code: lang.code,
-            installed: false,
-            version: '2026.1',
-            sizeMb: lang.packSizeMb,
+            installed: stat.isInstalled,
+            version: stat.datasetVersion,
+            sizeMb: stat.actualSizeMb,
           };
+          const isInstalled = stat.isInstalled;
 
           const isExpanded = expandedLang === lang.code;
           const isDownloading = downloadingCode === lang.code;
+          const kbSize = Math.round(stat.actualSizeBytes / 1024);
 
           return (
             <div
               key={lang.code}
               className={`rounded-3xl border transition-all overflow-hidden ${
-                pack.installed
+                isInstalled
                   ? 'bg-white dark:bg-[#15231D] border-slate-200/90 dark:border-slate-800 shadow-xs'
                   : 'bg-slate-50/80 dark:bg-[#131F19]/80 border-dashed border-slate-200 dark:border-slate-800/80 opacity-90'
               }`}
@@ -135,10 +136,18 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                 <div className="flex items-center gap-2.5">
                   <div className="text-right hidden sm:block">
                     <div className="text-xs font-bold text-slate-800 dark:text-slate-200 tabular-nums">
-                      {lang.packSizeMb} MB
+                      {kbSize} KB ({stat.actualSizeMb.toFixed(2)} MB)
                     </div>
-                    <div className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
-                      {dictionaryDb.getEntriesByLanguage(lang.code).length} Verified Local
+                    <div
+                      className={`text-[11px] font-medium tabular-nums ${
+                        isInstalled
+                          ? 'text-emerald-700 dark:text-emerald-400'
+                          : 'text-slate-500 dark:text-slate-400'
+                      }`}
+                    >
+                      {isInstalled
+                        ? `${stat.loadedEntriesCount} entries · ${stat.sensesCount} senses`
+                        : 'Not installed (0 active)'}
                     </div>
                   </div>
 
@@ -147,7 +156,7 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                     disabled={isDownloading}
                     onClick={() => handleDownloadToggle(lang.code)}
                     className={`h-10 px-4 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs ${
-                      pack.installed
+                      isInstalled
                         ? 'bg-[#EEF4F0] dark:bg-[#1F372C] text-[#204031] dark:text-[#7E9E88] hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600'
                         : 'bg-[#1B382B] text-white hover:bg-[#142A20]'
                     }`}
@@ -157,7 +166,7 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                         <span>Updating…</span>
                       </>
-                    ) : pack.installed ? (
+                    ) : isInstalled ? (
                       <>
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                         <span>Installed</span>
@@ -183,6 +192,27 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
               {/* Expanded Linguistic Specification */}
               {isExpanded && (
                 <div className="px-5 pb-5 pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-4 animate-in fade-in duration-200">
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#172B22] border border-slate-200/60 dark:border-slate-800">
+                      <div className="text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+                        {stat.loadedEntriesCount}
+                      </div>
+                      <div className="text-[11px] text-slate-500">Entries</div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#172B22] border border-slate-200/60 dark:border-slate-800">
+                      <div className="text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+                        {stat.sensesCount}
+                      </div>
+                      <div className="text-[11px] text-slate-500">Word Senses</div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#172B22] border border-slate-200/60 dark:border-slate-800">
+                      <div className="text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+                        {stat.translationRelationshipsCount}
+                      </div>
+                      <div className="text-[11px] text-slate-500">Translation Links</div>
+                    </div>
+                  </div>
+
                   <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#172B22] border border-slate-200/60 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
                     <span className="font-bold text-slate-900 dark:text-slate-100">Cultural & Historical Scope: </span>
                     {lang.culturalHeritage}

@@ -1,6 +1,7 @@
 import { LanguageCode, UserPreferences, Collection, InstalledPack } from '../types/dictionary';
 import { LANGUAGES } from '../data/languages';
 import { CURATED_COLLECTIONS } from '../data/dictionaryData';
+import { dictionaryDb } from './dictionaryDatabase';
 
 const STORAGE_KEYS = {
   PREFS: 'lexica_user_preferences',
@@ -12,26 +13,27 @@ const STORAGE_KEYS = {
 };
 
 const DEFAULT_INSTALLED_PACKS: Record<LanguageCode, InstalledPack> = {
-  en: { code: 'en', installed: true, version: '2026.1', sizeMb: 18.4, downloadDate: Date.now() },
-  ha: { code: 'ha', installed: true, version: '2026.1', sizeMb: 14.8, downloadDate: Date.now() },
-  yo: { code: 'yo', installed: true, version: '2026.1', sizeMb: 13.9, downloadDate: Date.now() },
-  ff: { code: 'ff', installed: true, version: '2026.1', sizeMb: 12.6, downloadDate: Date.now() },
-  ar: { code: 'ar', installed: true, version: '2026.1', sizeMb: 21.2, downloadDate: Date.now() },
-  fr: { code: 'fr', installed: true, version: '2026.1', sizeMb: 17.5, downloadDate: Date.now() },
-  zh: { code: 'zh', installed: true, version: '2026.1', sizeMb: 24.1, downloadDate: Date.now() },
+  en: { code: 'en', installed: true, version: '2026.4.0', sizeMb: 0.24, downloadDate: Date.now() },
+  ha: { code: 'ha', installed: true, version: '2026.4.0', sizeMb: 0.24, downloadDate: Date.now() },
+  yo: { code: 'yo', installed: true, version: '2026.4.0', sizeMb: 0.24, downloadDate: Date.now() },
+  ff: { code: 'ff', installed: true, version: '2026.4.0', sizeMb: 0.24, downloadDate: Date.now() },
+  ar: { code: 'ar', installed: true, version: '2026.4.0', sizeMb: 0.25, downloadDate: Date.now() },
+  fr: { code: 'fr', installed: true, version: '2026.4.0', sizeMb: 0.24, downloadDate: Date.now() },
+  zh: { code: 'zh', installed: true, version: '2026.4.0', sizeMb: 0.25, downloadDate: Date.now() },
 };
 
 const DEFAULT_PREFERENCES: UserPreferences = {
   hasCompletedOnboarding: false,
   interfaceLang: 'en',
   theme: 'light',
+  dictionaryMode: 'standard',
   sourceLang: 'en',
   targetLang: 'ha',
   audioPronunciation: true,
   showPhonetics: true,
   installedPacks: DEFAULT_INSTALLED_PACKS,
   savedWordIds: ['word-lafiya-ha', 'word-ogbon-yo', 'word-peace-en'],
-  recentSearches: ['Peace', 'Lafiya', 'Wisdom', ' صَبْر '],
+  recentSearches: ['Peace', 'Lafiya', 'Wisdom', 'صَبْر'],
   quizStreak: 3,
   totalQuizzesTaken: 8,
   totalCardsReviewed: 24,
@@ -43,13 +45,27 @@ export const StorageService = {
       const stored = localStorage.getItem(STORAGE_KEYS.PREFS);
       if (stored) {
         const parsed = JSON.parse(stored);
+        const liveStats = dictionaryDb.getLanguagePackStats();
+        const mergedPacks = { ...DEFAULT_INSTALLED_PACKS } as Record<LanguageCode, InstalledPack>;
+
+        (Object.keys(mergedPacks) as LanguageCode[]).forEach((code) => {
+          const parsedPack = parsed.installedPacks?.[code];
+          const isInstalled = parsedPack ? Boolean(parsedPack.installed) : true;
+          mergedPacks[code] = {
+            ...mergedPacks[code],
+            ...(parsedPack || {}),
+            installed: isInstalled,
+            version: liveStats[code]?.datasetVersion || '2026.4.0',
+            sizeMb: liveStats[code]?.actualSizeMb || LANGUAGES[code].packSizeMb,
+          };
+          dictionaryDb.setPackInstalled(code, isInstalled);
+        });
+
         return {
           ...DEFAULT_PREFERENCES,
           ...parsed,
-          installedPacks: {
-            ...DEFAULT_INSTALLED_PACKS,
-            ...(parsed.installedPacks || {}),
-          },
+          dictionaryMode: parsed.dictionaryMode === 'multilingual' ? 'multilingual' : 'standard',
+          installedPacks: mergedPacks,
         };
       }
     } catch {
@@ -122,17 +138,23 @@ export const StorageService = {
 
   togglePackInstalled(code: LanguageCode): InstalledPack {
     const prefs = this.getPreferences();
+    const liveStats = dictionaryDb.getLanguagePackStats();
     const currentPack = prefs.installedPacks[code] || {
       code,
       installed: false,
-      version: '2026.1',
-      sizeMb: LANGUAGES[code].packSizeMb,
+      version: '2026.4.0',
+      sizeMb: liveStats[code]?.actualSizeMb || LANGUAGES[code].packSizeMb,
     };
 
     const newInstalledState = !currentPack.installed;
+    dictionaryDb.setPackInstalled(code, newInstalledState);
+
+    const updatedStats = dictionaryDb.getLanguagePackStats()[code];
     const updatedPack: InstalledPack = {
       ...currentPack,
       installed: newInstalledState,
+      version: updatedStats?.datasetVersion || '2026.4.0',
+      sizeMb: updatedStats?.actualSizeMb || LANGUAGES[code].packSizeMb,
       downloadDate: newInstalledState ? Date.now() : undefined,
     };
 

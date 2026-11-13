@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LanguageCode, WordEntry, Collection } from './types/dictionary';
+import { DictionaryMode, LanguageCode, WordEntry, Collection } from './types/dictionary';
 import { StorageService } from './services/storageService';
 import { dictionaryDb } from './services/dictionaryDatabase';
 import { OnboardingScreen } from './components/OnboardingScreen';
@@ -44,6 +44,11 @@ export default function App() {
   const handleSelectTab = (tab: NavigationTab) => {
     setCurrentTab(tab);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSetDictionaryMode = (dictionaryMode: DictionaryMode) => {
+    const updated = StorageService.savePreferences({ dictionaryMode });
+    setPreferences(updated);
   };
 
   const handleSetLanguages = (source: LanguageCode, target: LanguageCode) => {
@@ -149,10 +154,13 @@ export default function App() {
         {currentTab === 'home' && (
           <HomeScreen
             interfaceLang={preferences.interfaceLang}
+            dictionaryMode={preferences.dictionaryMode}
+            onSetDictionaryMode={handleSetDictionaryMode}
             sourceLang={preferences.sourceLang}
             targetLang={preferences.targetLang}
             onSetLanguages={handleSetLanguages}
             onNavigateToDictionary={handleNavigateToDictionary}
+            onNavigateToLibrary={() => handleSelectTab('library')}
             onSelectWord={(word) => setSelectedWord(word)}
             savedWordIds={preferences.savedWordIds}
             onToggleSave={handleToggleSaveWord}
@@ -163,9 +171,12 @@ export default function App() {
 
         {currentTab === 'dictionary' && (
           <DictionaryScreen
+            dictionaryMode={preferences.dictionaryMode}
+            onSetDictionaryMode={handleSetDictionaryMode}
             sourceLang={preferences.sourceLang}
             targetLang={preferences.targetLang}
             onSetLanguages={handleSetLanguages}
+            onNavigateToLibrary={() => handleSelectTab('library')}
             onSelectWord={(word) => setSelectedWord(word)}
             savedWordIds={preferences.savedWordIds}
             onToggleSave={handleToggleSaveWord}
@@ -213,6 +224,7 @@ export default function App() {
       {selectedWord && (
         <WordDetailModal
           word={selectedWord}
+          dictionaryMode={preferences.dictionaryMode}
           targetLang={preferences.targetLang}
           isSaved={preferences.savedWordIds.includes(selectedWord.id)}
           onToggleSave={handleToggleSaveWord}
@@ -223,8 +235,15 @@ export default function App() {
           }}
           onSetLanguages={(src, tgt) => {
             handleSetLanguages(src, tgt);
+            handleSetDictionaryMode('multilingual');
             setSelectedWord(null);
             setCurrentTab('dictionary');
+          }}
+          onSearchRelated={(term, lang) => {
+            handleSetLanguages(lang, preferences.targetLang);
+            handleSetDictionaryMode('standard');
+            setSelectedWord(null);
+            handleNavigateToDictionary(term);
           }}
         />
       )}

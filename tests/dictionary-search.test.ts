@@ -1,10 +1,10 @@
 import assert from 'node:assert';
 import { dictionaryDb } from '../src/services/dictionaryDatabase';
-import { MultilingualSearchEngine } from '../src/services/dictionarySearchEngine';
+import { WordEntry } from '../src/types/dictionary';
 
-console.log('====================================================');
-console.log('LEXICA MULTILINGUAL DICTIONARY — AUTOMATED TEST SUITE');
-console.log('====================================================\n');
+console.log('==============================================================');
+console.log('LEXICA TWO-ENGINE DICTIONARY — AUTOMATED VERIFICATION SUITE');
+console.log('==============================================================\n');
 
 let passedTests = 0;
 let totalTests = 0;
@@ -22,241 +22,351 @@ function runTest(name: string, fn: () => void) {
   }
 }
 
-// ====================================================
-// SECTION 1: THE 10 MINIMUM REQUIRED BIDIRECTIONAL PAIRS
-// ====================================================
+// ======================================================================
+// SECTION 1: ENGINE 1 — STANDARD MONOLINGUAL DICTIONARY SEARCH
+// ======================================================================
 
-// 1. English -> Hausa
-runTest('1. English -> Hausa: Search "Water" finds "Ruwa"', () => {
-  const results = dictionaryDb.search('Water', 'en', 'ha');
-  assert(results.length > 0, 'Must find result for "Water" in en -> ha');
-  const match = results[0];
-  assert.strictEqual(match.sourceLang, 'en');
-  assert(match.translations.ha && match.translations.ha.length > 0);
-  assert(match.translations.ha.some((t) => t.headword.includes('Ruwa')));
+runTest('1.1 Standard (EN): "Water" returns multi-sense entry, IPA, morphology & synonyms', () => {
+  const res = dictionaryDb.searchStandard('Water', 'en');
+  assert.strictEqual(res.status, 'ok');
+  assert(res.results.length > 0);
+  const top = res.results[0];
+  assert.strictEqual(top.entry.sourceLang, 'en');
+  assert.strictEqual(top.entry.headword, 'Water');
+  assert(top.senses.length >= 2, 'Water must expose >= 2 structured senses');
+  assert(top.morphologicalForms.length >= 3, 'Water must expose morphological forms');
+  assert(top.entry.synonyms.length > 0, 'Water must include synonyms');
 });
 
-// 2. Hausa -> English
-runTest('2. Hausa -> English: Search "Ruwa" finds "Water"', () => {
-  const results = dictionaryDb.search('Ruwa', 'ha', 'en');
-  assert(results.length > 0, 'Must find result for "Ruwa" in ha -> en');
-  const match = results[0];
-  assert.strictEqual(match.sourceLang, 'ha');
-  assert(match.translations.en && match.translations.en.length > 0);
-  assert(match.translations.en.some((t) => t.headword.includes('Water')));
+runTest('1.2 Standard (EN): Browse mode returns all English entries without targetLang', () => {
+  const res = dictionaryDb.searchStandard('', 'en');
+  assert.strictEqual(res.status, 'browse');
+  assert(res.results.length >= 69, `Expected >= 69 English entries, got ${res.results.length}`);
 });
 
-// 3. English -> Yoruba
-runTest('3. English -> Yoruba: Search "Water" finds "Omi"', () => {
-  const results = dictionaryDb.search('Water', 'en', 'yo');
-  assert(results.length > 0, 'Must find result for "Water" in en -> yo');
-  const match = results[0];
-  assert.strictEqual(match.sourceLang, 'en');
-  assert(match.translations.yo && match.translations.yo.length > 0);
-  assert(match.translations.yo.some((t) => t.headword.includes('Omi')));
+runTest('1.3 Standard (HA): Hausa monolingual lookup ("Ruwa", hooked "Ƙofa")', () => {
+  const ruwa = dictionaryDb.searchStandard('Ruwa', 'ha');
+  assert.strictEqual(ruwa.status, 'ok');
+  assert.strictEqual(ruwa.results[0].entry.headword, 'Ruwa');
+
+  const kofaHooked = dictionaryDb.searchStandard('Ƙofa', 'ha');
+  const kofaAscii = dictionaryDb.searchStandard('kofa', 'ha');
+  assert.strictEqual(kofaHooked.status, 'ok');
+  assert.strictEqual(kofaAscii.status, 'ok');
+  assert.strictEqual(kofaHooked.results[0].entry.id, kofaAscii.results[0].entry.id);
 });
 
-// 4. Yoruba -> English
-runTest('4. Yoruba -> English: Search "Omi" finds "Water"', () => {
-  const results = dictionaryDb.search('Omi', 'yo', 'en');
-  assert(results.length > 0, 'Must find result for "Omi" in yo -> en');
-  const match = results[0];
-  assert.strictEqual(match.sourceLang, 'yo');
-  assert(match.translations.en && match.translations.en.length > 0);
-  assert(match.translations.en.some((t) => t.headword.includes('Water')));
+runTest('1.4 Standard (YO): Yoruba monolingual lookup with tone marks & ASCII fallback', () => {
+  const exact = dictionaryDb.searchStandard('Àlàáfíà', 'yo');
+  const ascii = dictionaryDb.searchStandard('alafia', 'yo');
+  assert.strictEqual(exact.status, 'ok');
+  assert.strictEqual(ascii.status, 'ok');
+  assert.strictEqual(exact.results[0].entry.id, ascii.results[0].entry.id);
 });
 
-// 5. English -> Arabic
-runTest('5. English -> Arabic: Search "Water" finds "مَاء"', () => {
-  const results = dictionaryDb.search('Water', 'en', 'ar');
-  assert(results.length > 0, 'Must find result for "Water" in en -> ar');
-  const match = results[0];
-  assert.strictEqual(match.sourceLang, 'en');
-  assert(match.translations.ar && match.translations.ar.length > 0);
-  assert(match.translations.ar.some((t) => t.headword.includes('ماء') || t.headword.includes('مَاء')));
+runTest('1.5 Standard (FF): Fulfulde monolingual lookup & hooked orthography', () => {
+  const suudu = dictionaryDb.searchStandard('Suudu', 'ff');
+  assert.strictEqual(suudu.status, 'ok');
+  assert.strictEqual(suudu.results[0].entry.sourceLang, 'ff');
+
+  const munal = dictionaryDb.searchStandard('Muñal', 'ff');
+  const munalAscii = dictionaryDb.searchStandard('munal', 'ff');
+  assert.strictEqual(munal.status, 'ok');
+  assert.strictEqual(munalAscii.status, 'ok');
+  assert.strictEqual(munal.results[0].entry.id, munalAscii.results[0].entry.id);
 });
 
-// 6. Arabic -> English
-runTest('6. Arabic -> English: Search "مَاء" finds "Water"', () => {
-  const results = dictionaryDb.search('مَاء', 'ar', 'en');
-  assert(results.length > 0, 'Must find result for "مَاء" in ar -> en');
-  const match = results[0];
-  assert.strictEqual(match.sourceLang, 'ar');
-  assert(match.translations.en && match.translations.en.length > 0);
-  assert(match.translations.en.some((t) => t.headword.includes('Water')));
+runTest('1.6 Standard (AR): Arabic monolingual lookup with & without Tashkeel', () => {
+  const exact = dictionaryDb.searchStandard('خَيْرٌ', 'ar');
+  const bare = dictionaryDb.searchStandard('خير', 'ar');
+  assert.strictEqual(exact.status, 'ok');
+  assert.strictEqual(bare.status, 'ok');
+  assert.strictEqual(exact.results[0].entry.id, bare.results[0].entry.id);
+  assert(exact.results[0].senses.length >= 2, 'Arabic خَيْرٌ must expose 2 senses');
 });
 
-// 7. English -> French
-runTest('7. English -> French: Search "Water" finds "Eau"', () => {
-  const results = dictionaryDb.search('Water', 'en', 'fr');
-  assert(results.length > 0, 'Must find result for "Water" in en -> fr');
-  const match = results[0];
-  assert.strictEqual(match.sourceLang, 'en');
-  assert(match.translations.fr && match.translations.fr.length > 0);
-  assert(match.translations.fr.some((t) => t.headword.includes('Eau')));
+runTest('1.7 Standard (FR): French monolingual lookup with accents & ligatures', () => {
+  const mere = dictionaryDb.searchStandard('mere', 'fr');
+  assert.strictEqual(mere.status, 'ok');
+  assert.strictEqual(mere.results[0].entry.headword, 'Mère / Maman');
+
+  const coeur = dictionaryDb.searchStandard('coeur', 'fr');
+  assert.strictEqual(coeur.status, 'ok');
+  assert.strictEqual(coeur.results[0].entry.headword, 'Cœur');
 });
 
-// 8. French -> English
-runTest('8. French -> English: Search "Eau" finds "Water"', () => {
-  const results = dictionaryDb.search('Eau', 'fr', 'en');
-  assert(results.length > 0, 'Must find result for "Eau" in fr -> en');
-  const match = results[0];
-  assert.strictEqual(match.sourceLang, 'fr');
-  assert(match.translations.en && match.translations.en.length > 0);
-  assert(match.translations.en.some((t) => t.headword.includes('Water')));
+runTest('1.8 Standard (ZH): Chinese monolingual lookup via Hanzi, tonal Pinyin & bare Pinyin', () => {
+  const hanzi = dictionaryDb.searchStandard('善', 'zh');
+  const pinyinTone = dictionaryDb.searchStandard('shàn', 'zh');
+  const pinyinBare = dictionaryDb.searchStandard('shan', 'zh');
+  assert.strictEqual(hanzi.status, 'ok');
+  assert.strictEqual(pinyinTone.status, 'ok');
+  assert.strictEqual(pinyinBare.status, 'ok');
+  assert.strictEqual(hanzi.results[0].entry.id, pinyinTone.results[0].entry.id);
+  assert.strictEqual(hanzi.results[0].entry.id, pinyinBare.results[0].entry.id);
 });
 
-// 9. English -> Chinese
-runTest('9. English -> Chinese: Search "Water" finds "水"', () => {
-  const results = dictionaryDb.search('Water', 'en', 'zh');
-  assert(results.length > 0, 'Must find result for "Water" in en -> zh');
-  const match = results[0];
-  assert.strictEqual(match.sourceLang, 'en');
-  assert(match.translations.zh && match.translations.zh.length > 0);
-  assert(match.translations.zh.some((t) => t.headword.includes('水')));
+runTest('1.9 Standard Morphology Search: Inflected forms match base entries across languages', () => {
+  const men = dictionaryDb.searchStandard('men', 'en');
+  assert.strictEqual(men.status, 'ok');
+  assert.strictEqual(men.results[0].entry.headword, 'Man');
+  assert.strictEqual(men.results[0].matchedField, 'morphology');
+
+  const went = dictionaryDb.searchStandard('went', 'en');
+  assert.strictEqual(went.status, 'ok');
+  assert.strictEqual(went.results[0].entry.headword, 'Go / Travel');
+
+  const gidaje = dictionaryDb.searchStandard('gidaje', 'ha');
+  assert.strictEqual(gidaje.status, 'ok');
+  assert.strictEqual(gidaje.results[0].entry.headword, 'Gida');
+
+  const cuudi = dictionaryDb.searchStandard('cuuɗi', 'ff');
+  assert.strictEqual(cuudi.status, 'ok');
+  assert.strictEqual(cuudi.results[0].entry.headword, 'Suudu');
+
+  const miyah = dictionaryDb.searchStandard('مِيَاه', 'ar');
+  assert.strictEqual(miyah.status, 'ok');
+  assert.strictEqual(miyah.results[0].entry.headword, 'مَاء');
+
+  const eaux = dictionaryDb.searchStandard('eaux', 'fr');
+  assert.strictEqual(eaux.status, 'ok');
+  assert.strictEqual(eaux.results[0].entry.headword, 'Eau');
 });
 
-// 10. Chinese -> English
-runTest('10. Chinese -> English: Search "水" finds "Water"', () => {
-  const results = dictionaryDb.search('水', 'zh', 'en');
-  assert(results.length > 0, 'Must find result for "水" in zh -> en');
-  const match = results[0];
-  assert.strictEqual(match.sourceLang, 'zh');
-  assert(match.translations.en && match.translations.en.length > 0);
-  assert(match.translations.en.some((t) => t.headword.includes('Water')));
+runTest('1.10 Standard Synonym Search: "serenity" finds "Peace"', () => {
+  const res = dictionaryDb.searchStandard('serenity', 'en');
+  assert.strictEqual(res.status, 'ok');
+  assert(res.results.some((r) => r.entry.headword === 'Peace'));
 });
 
-// ====================================================
-// SECTION 2: SPECIAL CHARACTERS & ORTHOGRAPHY
-// ====================================================
+runTest('1.11 Standard Explicit Failure States: not_found, no_definition & language_not_installed', () => {
+  const missing = dictionaryDb.searchStandard('xyz99nonexistentword', 'en');
+  assert.strictEqual(missing.status, 'not_found');
+  assert.strictEqual(missing.results.length, 0);
 
-// 11. Arabic Harakat (Tashkeel) and Root Matching
-runTest('11. Arabic Harakat: Search works identically with and without Tashkeel', () => {
-  const withDiacritics = dictionaryDb.search('خَيْرٌ', 'ar', 'ha');
-  const withoutDiacritics = dictionaryDb.search('خير', 'ar', 'ha');
-  assert(withDiacritics.length > 0, 'Search with Tashkeel "خَيْرٌ" must find entry');
-  assert(withoutDiacritics.length > 0, 'Search without Tashkeel "خير" must find entry');
-  assert.strictEqual(withDiacritics[0].id, withoutDiacritics[0].id);
+  // Temporarily register a headword without any definition
+  const emptyDefEntry: WordEntry = {
+    id: 'test-no-def-en',
+    sourceLang: 'en',
+    headword: 'Zetamockterm',
+    ipa: '/ˈzeɪ.tə/',
+    partOfSpeech: 'noun',
+    definition: '',
+    definitionEn: '',
+    translations: {},
+    examples: [],
+    synonyms: [],
+    antonyms: [],
+    verifiedOffline: false,
+    tags: [],
+  };
+  dictionaryDb.upsertEntry(emptyDefEntry);
+  try {
+    const noDef = dictionaryDb.searchStandard('Zetamockterm', 'en');
+    assert.strictEqual(noDef.status, 'no_definition');
+  } finally {
+    dictionaryDb.removeEntry('test-no-def-en');
+  }
 
-  // Test Salam
-  const salamWithTashkeel = dictionaryDb.search('سَلَام', 'ar', 'en');
-  const salamBare = dictionaryDb.search('سلام', 'ar', 'en');
-  assert(salamWithTashkeel.length > 0);
-  assert(salamBare.length > 0);
-  assert.strictEqual(salamWithTashkeel[0].id, salamBare[0].id);
-});
-
-// 12. Yoruba Tone Marks and Sub-dots
-runTest('12. Yoruba Tones: Exact diacritics and ASCII keyboard fallback', () => {
-  const exact = dictionaryDb.search('Àlàáfíà', 'yo', 'en');
-  const fallback = dictionaryDb.search('alafia', 'yo', 'en');
-  assert(exact.length > 0, 'Exact tone "Àlàáfíà" must find entry');
-  assert(fallback.length > 0, 'ASCII "alafia" must find entry via soft normalization');
-  assert.strictEqual(exact[0].id, fallback[0].id);
-
-  // Wisdom: Ọgbọ́n vs ogbon
-  const ogbonExact = dictionaryDb.search('Ọgbọ́n', 'yo', 'en');
-  const ogbonFallback = dictionaryDb.search('ogbon', 'yo', 'en');
-  assert(ogbonExact.length > 0, '"Ọgbọ́n" must be found');
-  assert(ogbonFallback.length > 0, '"ogbon" must be found');
-  assert.strictEqual(ogbonExact[0].id, ogbonFallback[0].id);
-});
-
-// 13. Hausa Hooked Consonants (Ƙ, Ɓ, Ɗ, Ƴ)
-runTest('13. Hausa Hooked Consonants: Hooked Ƙ and standard k', () => {
-  const hooked = dictionaryDb.search('Ƙofa', 'ha', 'en');
-  const standard = dictionaryDb.search('kofa', 'ha', 'en');
-  assert(hooked.length > 0, 'Search with hooked Ƙ "Ƙofa" must find entry');
-  assert(standard.length > 0, 'Search with standard k "kofa" must find entry');
-  assert.strictEqual(hooked[0].id, standard[0].id);
-});
-
-// 14. Chinese Hanzi and Pinyin with/without Tonal Marks
-runTest('14. Chinese: Hanzi, Pinyin with tones, and bare Pinyin', () => {
-  const hanzi = dictionaryDb.search('善', 'zh', 'en');
-  const pinyinWithTone = dictionaryDb.search('shàn', 'zh', 'en');
-  const pinyinBare = dictionaryDb.search('shan', 'zh', 'en');
-  assert(hanzi.length > 0, 'Hanzi "善" must find entry');
-  assert(pinyinWithTone.length > 0, 'Pinyin with tone "shàn" must find entry');
-  assert(pinyinBare.length > 0, 'Pinyin without tone "shan" must find entry');
-  assert.strictEqual(hanzi[0].id, pinyinWithTone[0].id);
-  assert.strictEqual(hanzi[0].id, pinyinBare[0].id);
-
-  // Peace: 和平 vs heping
-  const heping = dictionaryDb.search('和平', 'zh', 'en');
-  const hepingPinyin = dictionaryDb.search('heping', 'zh', 'en');
-  assert(heping.length > 0);
-  assert(hepingPinyin.length > 0);
-  assert.strictEqual(heping[0].id, hepingPinyin[0].id);
-});
-
-// 15. French Accents & Ligatures
-runTest('15. French: Accented and unaccented search', () => {
-  const accented = dictionaryDb.search('Mère', 'fr', 'en');
-  const unaccented = dictionaryDb.search('mere', 'fr', 'en');
-  assert(accented.length > 0, 'Accented "Mère" must find entry');
-  assert(unaccented.length > 0, 'Unaccented "mere" must find entry');
-  assert.strictEqual(accented[0].id, unaccented[0].id);
-
-  // Coeur / Cœur
-  const coeur = dictionaryDb.search('coeur', 'fr', 'en');
-  assert(coeur.length > 0, '"coeur" must find Cœur entry');
-});
-
-// ====================================================
-// SECTION 3: CASE, PARTIAL, MISSING & ISOLATION
-// ====================================================
-
-// 16. Case Insensitivity
-runTest('16. Case Handling: UPPERCASE, lowercase, and TitleCase', () => {
-  const lower = dictionaryDb.search('water', 'en', 'ha');
-  const upper = dictionaryDb.search('WATER', 'en', 'ha');
-  const title = dictionaryDb.search('Water', 'en', 'ha');
-  assert(lower.length > 0);
-  assert(upper.length > 0);
-  assert(title.length > 0);
-  assert.strictEqual(lower[0].id, upper[0].id);
-  assert.strictEqual(lower[0].id, title[0].id);
-});
-
-// 17. Partial Prefix Search
-runTest('17. Partial Prefix Search: "wat" finds "Water", "ruw" finds "Ruwa"', () => {
-  const partialEn = dictionaryDb.search('wat', 'en', 'ha');
-  const partialHa = dictionaryDb.search('ruw', 'ha', 'en');
-  assert(partialEn.length > 0, '"wat" must find Water');
-  assert(partialHa.length > 0, '"ruw" must find Ruwa');
-  assert(partialEn.some((e) => e.headword.toLowerCase().includes('water')));
-  assert(partialHa.some((e) => e.headword.toLowerCase().includes('ruwa')));
-});
-
-// 18. Missing / Nonexistent Word
-runTest('18. Missing Words: Nonexistent queries return empty array without throwing', () => {
-  const missing = dictionaryDb.search('xyz99nonexistentword', 'en', 'ha');
-  assert.strictEqual(missing.length, 0, 'Nonexistent word must return empty array');
-});
-
-// 19. Language Pair Isolation
-runTest('19. Pair Isolation: Search results do NOT mix unrelated language pairs', () => {
-  const results = dictionaryDb.search('', 'ar', 'ha');
-  assert(results.length > 0, 'Must have entries');
-  for (const entry of results) {
-    const isAr = entry.sourceLang === 'ar' && !!entry.translations.ha?.length;
-    const isHa = entry.sourceLang === 'ha' && !!entry.translations.ar?.length;
-    assert(isAr || isHa, `Entry ${entry.id} must be strictly within ar <-> ha pair`);
+  // Test language_not_installed enforcement
+  dictionaryDb.setPackInstalled('ff', false);
+  try {
+    const uninstalled = dictionaryDb.searchStandard('Suudu', 'ff');
+    assert.strictEqual(uninstalled.status, 'language_not_installed');
+    assert.strictEqual(uninstalled.results.length, 0);
+  } finally {
+    dictionaryDb.setPackInstalled('ff', true);
   }
 });
 
-// 20. Offline Database Integrity across all 7 launch languages
-runTest('20. Offline Database: All 7 launch languages populated and available offline', () => {
+// ======================================================================
+// SECTION 2: ENGINE 2 — MULTILINGUAL DICTIONARY SEARCH
+// ======================================================================
+
+runTest('2.1 English <-> Hausa bidirectional sense-level lookup', () => {
+  const enToHa = dictionaryDb.searchMultilingual('Water', 'en', 'ha');
+  assert.strictEqual(enToHa.status, 'ok');
+  assert.strictEqual(enToHa.results[0].entry.sourceLang, 'en');
+  assert(
+    enToHa.results[0].senseMatches.some((sm) => sm.relationship.targetHeadword.includes('Ruwa')),
+    'en->ha Water must link to Ruwa'
+  );
+
+  const haToEn = dictionaryDb.searchMultilingual('Ruwa', 'ha', 'en');
+  assert.strictEqual(haToEn.status, 'ok');
+  assert.strictEqual(haToEn.results[0].entry.sourceLang, 'ha');
+  assert(
+    haToEn.results[0].senseMatches.some((sm) => sm.relationship.targetHeadword.includes('Water')),
+    'ha->en Ruwa must link to Water'
+  );
+});
+
+runTest('2.2 English <-> Yoruba bidirectional lookup & contextual equivalence', () => {
+  const enToYo = dictionaryDb.searchMultilingual('Peace', 'en', 'yo');
+  assert.strictEqual(enToYo.status, 'ok');
+  const alafiaRel = enToYo.results[0].senseMatches.find((sm) =>
+    sm.relationship.targetHeadword.includes('Àlàáfíà')
+  )?.relationship;
+  assert(alafiaRel, 'en->yo Peace must link to Àlàáfíà');
+  assert.strictEqual(alafiaRel.equivalenceType, 'contextual');
+  assert(alafiaRel.contextualNote && alafiaRel.contextualNote.length > 0);
+
+  const yoToEn = dictionaryDb.searchMultilingual('Omi', 'yo', 'en');
+  assert.strictEqual(yoToEn.status, 'ok');
+  assert(yoToEn.results[0].senseMatches.some((sm) => sm.relationship.targetHeadword.includes('Water')));
+});
+
+runTest('2.3 English <-> Arabic bidirectional lookup & Tashkeel normalization', () => {
+  const enToAr = dictionaryDb.searchMultilingual('Water', 'en', 'ar');
+  assert.strictEqual(enToAr.status, 'ok');
+  assert(
+    enToAr.results[0].senseMatches.some(
+      (sm) => sm.relationship.targetHeadword.includes('ماء') || sm.relationship.targetHeadword.includes('مَاء')
+    )
+  );
+
+  const arToEn = dictionaryDb.searchMultilingual('سلام', 'ar', 'en');
+  assert.strictEqual(arToEn.status, 'ok');
+  assert(arToEn.results[0].senseMatches.some((sm) => sm.relationship.targetHeadword.includes('Peace')));
+});
+
+runTest('2.4 English <-> French & Arabic <-> French lookups', () => {
+  const enToFr = dictionaryDb.searchMultilingual('Water', 'en', 'fr');
+  assert.strictEqual(enToFr.status, 'ok');
+  assert(enToFr.results[0].senseMatches.some((sm) => sm.relationship.targetHeadword.includes('Eau')));
+
+  const frToEn = dictionaryDb.searchMultilingual('Eau', 'fr', 'en');
+  assert.strictEqual(frToEn.status, 'ok');
+  assert(frToEn.results[0].senseMatches.some((sm) => sm.relationship.targetHeadword.includes('Water')));
+
+  const arToFr = dictionaryDb.searchMultilingual('خَيْرٌ', 'ar', 'fr');
+  assert.strictEqual(arToFr.status, 'ok');
+  assert(arToFr.results[0].senseMatches.length > 0);
+});
+
+runTest('2.5 English <-> Chinese bidirectional lookup (Hanzi + Pinyin)', () => {
+  const enToZh = dictionaryDb.searchMultilingual('Water', 'en', 'zh');
+  assert.strictEqual(enToZh.status, 'ok');
+  assert(enToZh.results[0].senseMatches.some((sm) => sm.relationship.targetHeadword.includes('水')));
+
+  const zhToEn = dictionaryDb.searchMultilingual('水', 'zh', 'en');
+  assert.strictEqual(zhToEn.status, 'ok');
+  assert(zhToEn.results[0].senseMatches.some((sm) => sm.relationship.targetHeadword.includes('Water')));
+
+  const hepingEn = dictionaryDb.searchMultilingual('heping', 'zh', 'en');
+  assert.strictEqual(hepingEn.status, 'ok');
+  assert(hepingEn.results[0].senseMatches.some((sm) => sm.relationship.targetHeadword.includes('Peace')));
+});
+
+runTest('2.6 Multilingual Reverse Lookup: Searching target term finds pair & flags isReverseLookup', () => {
+  const reverse = dictionaryDb.searchMultilingual('Ruwa', 'en', 'ha');
+  assert.strictEqual(reverse.status, 'ok');
+  assert(reverse.results.length > 0);
+  assert.strictEqual(reverse.results[0].isReverseLookup, true);
+});
+
+runTest('2.7 Multilingual Idiomatic Equivalence Detection', () => {
+  const idiomRes = dictionaryDb.searchMultilingual('Ƙarfin hali', 'ha', 'en');
+  assert.strictEqual(idiomRes.status, 'ok');
+  const link = idiomRes.results[0].senseMatches[0].relationship;
+  assert.strictEqual(link.equivalenceType, 'idiomatic');
+  assert(link.contextualNote && link.contextualNote.toLowerCase().includes('idiomatic'));
+});
+
+runTest('2.8 Multilingual Statuses: invalid_pair, no_translation, language_not_installed & not_found', () => {
+  const invalid = dictionaryDb.searchMultilingual('Water', 'en', 'en');
+  assert.strictEqual(invalid.status, 'invalid_pair');
+
+  const missing = dictionaryDb.searchMultilingual('xyz99nonexistentword', 'en', 'ha');
+  assert.strictEqual(missing.status, 'not_found');
+  assert.strictEqual(missing.existsInStandardDictionary, false);
+
+  // Monolingual-only word with NO translation links
+  const monolingualOnly: WordEntry = {
+    id: 'test-mono-only-en',
+    sourceLang: 'en',
+    headword: 'Monolithsample',
+    ipa: '/ˈmɒn.ə.lɪθ/',
+    partOfSpeech: 'noun',
+    definition: 'A large single upright block of stone.',
+    definitionEn: 'A large single upright block of stone.',
+    translations: {},
+    examples: [],
+    synonyms: [],
+    antonyms: [],
+    verifiedOffline: false,
+    tags: [],
+  };
+  dictionaryDb.upsertEntry(monolingualOnly);
+  try {
+    const stdFound = dictionaryDb.searchStandard('Monolithsample', 'en');
+    assert.strictEqual(stdFound.status, 'ok', 'Monolingual entry must still work in Engine 1');
+
+    const noTrans = dictionaryDb.searchMultilingual('Monolithsample', 'en', 'ha');
+    assert.strictEqual(noTrans.status, 'no_translation');
+    assert.strictEqual(noTrans.existsInStandardDictionary, true);
+  } finally {
+    dictionaryDb.removeEntry('test-mono-only-en');
+  }
+
+  // Uninstall target language and verify Multilingual engine blocks queries cleanly
+  dictionaryDb.setPackInstalled('yo', false);
+  try {
+    const blocked = dictionaryDb.searchMultilingual('Water', 'en', 'yo');
+    assert.strictEqual(blocked.status, 'language_not_installed');
+  } finally {
+    dictionaryDb.setPackInstalled('yo', true);
+  }
+});
+
+// ======================================================================
+// SECTION 3: CASE, PARTIAL & SHARED DATA INTEGRITY
+// ======================================================================
+
+runTest('3.1 Case Insensitivity & Partial Prefix Searches in Both Engines', () => {
+  const stdUpper = dictionaryDb.searchStandard('WATER', 'en');
+  const stdPrefix = dictionaryDb.searchStandard('wat', 'en');
+  assert.strictEqual(stdUpper.status, 'ok');
+  assert.strictEqual(stdPrefix.status, 'ok');
+  assert.strictEqual(stdUpper.results[0].entry.headword, 'Water');
+  assert(stdPrefix.results.some((r) => r.entry.headword === 'Water'));
+
+  const multiPrefix = dictionaryDb.searchMultilingual('ruw', 'ha', 'en');
+  assert.strictEqual(multiPrefix.status, 'ok');
+  assert(multiPrefix.results.some((r) => r.entry.headword === 'Ruwa'));
+});
+
+runTest('3.2 Honest Offline Dataset Integrity & Zero Fake Sizes', () => {
   const stats = dictionaryDb.getLanguagePackStats();
   const languages = ['en', 'ha', 'yo', 'ff', 'ar', 'fr', 'zh'] as const;
+  let totalEntries = 0;
+  let totalSenses = 0;
+  let totalBytes = 0;
+
   for (const lang of languages) {
-    assert(stats[lang].loadedEntriesCount >= 17, `Language ${lang} must have >= 17 entries`);
-    assert(stats[lang].isAvailableOffline, `Language ${lang} must be available offline`);
-    assert(stats[lang].verifiedDirectedPairsCount >= 6, `Language ${lang} must connect to other languages`);
+    assert(stats[lang].loadedEntriesCount >= 69, `${lang} must have real bundled entries`);
+    assert(stats[lang].isInstalled, `${lang} must be installed by default`);
+    assert(stats[lang].actualSizeBytes > 50_000, `${lang} real serialized size must be > 50 KB`);
+    assert(stats[lang].actualSizeMb < 1.0, `${lang} real starter size must NOT be inflated`);
+    totalEntries += stats[lang].loadedEntriesCount;
+    totalSenses += stats[lang].sensesCount;
+    totalBytes += stats[lang].actualSizeBytes;
   }
+
+  const totalRels = dictionaryDb.getTotalTranslationRelationshipsCount();
+  console.log('\n--- LIVE DATASET SUMMARY ---');
+  console.log(`Total Entries: ${totalEntries}`);
+  console.log(`Total Senses:  ${totalSenses}`);
+  console.log(`Total Translation Relationships: ${totalRels}`);
+  console.log(`Total Serialized Corpus Size: ${(totalBytes / (1024 * 1024)).toFixed(2)} MB (${totalBytes} bytes)`);
+  for (const lang of languages) {
+    console.log(
+      `  [${lang.toUpperCase()}] entries=${stats[lang].loadedEntriesCount}, senses=${stats[lang].sensesCount}, rels=${stats[lang].translationRelationshipsCount}, size=${Math.round(stats[lang].actualSizeBytes / 1024)} KB`
+    );
+  }
+  console.log('----------------------------\n');
 });
 
-console.log('\n====================================================');
+console.log('\n==============================================================');
 console.log(`RESULTS: ${passedTests} / ${totalTests} TESTS PASSED`);
-console.log('====================================================\n');
+console.log('==============================================================\n');

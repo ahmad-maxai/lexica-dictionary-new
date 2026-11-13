@@ -59,15 +59,17 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
            (e.sourceLang === targetLang && !!e.translations[sourceLang]?.length)
   );
   const flashcardList = pairEntries.length > 0 ? pairEntries : allEntries;
-  const currentCard = flashcardList[currentCardIndex % flashcardList.length];
-  const sourceMeta = LANGUAGES[currentCard.sourceLang];
+  const currentCard = flashcardList.length > 0 ? flashcardList[currentCardIndex % flashcardList.length] : null;
+  const sourceMeta = currentCard ? LANGUAGES[currentCard.sourceLang] : LANGUAGES[sourceLang];
   const targetMeta = LANGUAGES[targetLang];
-  const currentTranslation = currentCard.translations[targetLang]?.[0] || {
-    headword: currentCard.definitionEn || currentCard.definition,
-    transliteration: '',
-    definition: currentCard.definition,
-    partOfSpeech: currentCard.partOfSpeech,
-  };
+  const currentTranslation = currentCard
+    ? currentCard.translations[targetLang]?.[0] || {
+        headword: currentCard.definitionEn || currentCard.definition,
+        transliteration: '',
+        definition: currentCard.definition,
+        partOfSpeech: currentCard.partOfSpeech,
+      }
+    : null;
 
   const handleNextCard = () => {
     setIsFlipped(false);
@@ -83,6 +85,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
 
   const handleCardSpeak = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!currentCard) return;
     audioService.speak(currentCard.headword, currentCard.sourceLang, currentCard.tonePattern);
   };
 
@@ -188,7 +191,12 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
       </div>
 
       {/* --- TAB 1: FLASHCARDS --- */}
-      {activeTab === 'flashcards' && (
+      {activeTab === 'flashcards' && (!currentCard || !currentTranslation) && (
+        <div className="p-8 rounded-3xl bg-white dark:bg-[#15231D] border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500">
+          No language packs are currently active. Install a language pack in Library to study flashcards.
+        </div>
+      )}
+      {activeTab === 'flashcards' && currentCard && currentTranslation && (
         <div className="space-y-4">
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>
