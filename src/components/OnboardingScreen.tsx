@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { LanguageCode } from '../types/dictionary';
 import { LANGUAGES, LANGUAGE_LIST } from '../data/languages';
 import { ArtworkBanner } from './ArtworkBanner';
 import { Check, Globe2, BookOpen, Sparkles, Volume2 } from 'lucide-react';
 import { audioService } from '../services/audioService';
+import { getUiCopy, getContentCopy, getLangName } from '../i18n';
 
 interface OnboardingScreenProps {
   onComplete: (selectedLanguage: LanguageCode) => void;
@@ -14,6 +15,13 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
   const [isPlayingAudio, setIsPlayingAudio] = useState<boolean>(false);
 
   const currentMeta = LANGUAGES[selectedLang];
+  const copy = getUiCopy(selectedLang);
+  const content = getContentCopy(selectedLang);
+
+  useEffect(() => {
+    document.documentElement.lang = selectedLang;
+    document.documentElement.dir = selectedLang === 'ar' ? 'rtl' : 'ltr';
+  }, [selectedLang]);
 
   const handleSelectLanguage = (code: LanguageCode) => {
     setSelectedLang(code);
@@ -30,29 +38,11 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
     onComplete(selectedLang);
   };
 
-  // Localized continue button labels
-  const continueLabels: Record<LanguageCode, string> = {
-    en: 'Enter Dictionary',
-    ha: 'Fara Amfani da Kamus',
-    yo: 'Tẹ̀síwájú sínú Àtúmọ̀-Èdè',
-    ff: 'Fuɗɗo Kuugal e Saggitorde',
-    ar: 'دخول المعجم اللغوي',
-    fr: 'Entrer dans le Dictionnaire',
-    zh: '进入多语词典',
-  };
-
-  const subtitleLabels: Record<LanguageCode, string> = {
-    en: 'Select your preferred default interface language. You can change this at any time in Settings.',
-    ha: 'Zaɓi yaren da kake son amfani da shi a cikin manhajar. Zaka iya canzawa a ko da yaushe a cikin Tsari.',
-    yo: 'Yan èdè tí o fẹ́ kí ó jẹ́ èdè àkọ́kọ́ nínú àtúmọ̀-èdè yìí. O lè yípadà nígbàkúgbà.',
-    ff: 'Suɓo ɗemngal ngal njiɗ-ɗaa huutoraade. Aɗa waawi waylude ɗum e nder teeltol.',
-    ar: 'اختر لغة الواجهة الأساسية المفضلة لديك. يمكنك تغييرها لاحقاً من الإعدادات في أي وقت.',
-    fr: 'Sélectionnez votre langue d’interface par défaut. Vous pourrez la modifier à tout moment.',
-    zh: '请选择您的默认界面语言。您可以随时在设置中更改此选项。',
-  };
-
   return (
-    <div className="min-h-screen bg-[#142E23] flex flex-col justify-between text-slate-900 transition-colors duration-300">
+    <div
+      dir={selectedLang === 'ar' ? 'rtl' : 'ltr'}
+      className="min-h-screen bg-[#142E23] flex flex-col justify-between text-slate-900 transition-colors duration-300"
+    >
       {/* Top half: Abstract artistic heritage artwork inspired by the design reference */}
       <div className="relative w-full">
         <ArtworkBanner language={selectedLang} variant="onboarding" />
@@ -61,11 +51,13 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
         <div className="absolute top-6 left-0 right-0 px-6 flex items-center justify-between z-10">
           <div className="flex items-center gap-2.5 bg-black/30 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 text-white">
             <BookOpen className="w-4 h-4 text-[#7E9E88]" />
-            <span className="font-serif-editorial text-sm font-medium tracking-wide">Lexica</span>
+            <span className="font-serif-editorial text-sm font-medium tracking-wide">
+              {copy.common.appName}
+            </span>
           </div>
 
           <div className="text-xs text-white/70 bg-black/20 backdrop-blur-md px-3 py-1 rounded-full border border-white/10">
-            Offline Lexicon
+            {copy.common.offlineBadge}
           </div>
         </div>
 
@@ -73,17 +65,17 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
         <div className="absolute bottom-6 left-6 right-6 text-white z-10 pointer-events-auto">
           <div className="flex items-baseline justify-between mb-1">
             <span className="text-[11px] font-medium tracking-wider uppercase text-[#E5B59D]">
-              {currentMeta.name} · {currentMeta.scriptName}
+              {getLangName(selectedLang, selectedLang)} · {content.scriptNames[selectedLang]}
             </span>
 
             <button
               onClick={handlePlayGreeting}
               disabled={isPlayingAudio}
-              className="flex items-center gap-1.5 text-xs text-white/90 hover:text-white bg-white/15 hover:bg-white/25 backdrop-blur-md px-2.5 py-1 rounded-full transition-all active:scale-95"
-              title="Listen to pronunciation"
+              className="flex items-center gap-1.5 text-xs text-white/90 hover:text-white bg-white/15 hover:bg-white/25 backdrop-blur-md px-2.5 py-1 rounded-full transition-all active:scale-95 cursor-pointer"
+              title={copy.onboarding.pronounceTitle}
             >
               <Volume2 className={`w-3.5 h-3.5 ${isPlayingAudio ? 'animate-pulse text-[#E59882]' : ''}`} />
-              <span>Pronounce</span>
+              <span>{copy.common.pronounce}</span>
             </button>
           </div>
 
@@ -96,10 +88,10 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
             {currentMeta.sampleGreeting.word}
           </div>
 
-          <div className="text-xs text-white/80 mt-1 flex items-center gap-2 font-mono">
-            <span>{currentMeta.sampleGreeting.transcription}</span>
+          <div className="text-xs text-white/80 mt-1 flex flex-wrap items-center gap-2 font-mono">
+            <span dir="ltr">{currentMeta.sampleGreeting.transcription}</span>
             <span>·</span>
-            <span className="font-sans italic">{currentMeta.sampleGreeting.meaning}</span>
+            <span className="font-sans italic">{content.greetingMeanings[selectedLang]}</span>
           </div>
         </div>
       </div>
@@ -111,12 +103,12 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
           <div className="mb-5">
             <div className="flex items-center justify-between mb-1.5">
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <span>Choose Interface Language</span>
+                <span>{copy.onboarding.chooseTitle}</span>
               </h1>
               <Globe2 className="w-5 h-5 text-[#345E4C] dark:text-[#7E9E88]" />
             </div>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              {subtitleLabels[selectedLang]}
+              {copy.onboarding.subtitle}
             </p>
           </div>
 
@@ -129,7 +121,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                   key={lang.code}
                   type="button"
                   onClick={() => handleSelectLanguage(lang.code)}
-                  className={`relative text-left p-3.5 rounded-2xl border transition-all duration-200 flex items-center justify-between gap-3 ${
+                  className={`relative text-start p-3.5 rounded-2xl border transition-all duration-200 flex items-center justify-between gap-3 cursor-pointer ${
                     isSelected
                       ? 'border-[#204031] bg-[#EEF4F0] dark:bg-[#1D3227] dark:border-[#7E9E88] shadow-sm'
                       : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-[#192A22] hover:border-slate-300 dark:hover:border-slate-700'
@@ -150,10 +142,10 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                     <div className="min-w-0">
                       <div className="flex items-baseline gap-2">
                         <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
-                          {lang.name}
+                          {getLangName(lang.code, selectedLang)}
                         </span>
                         <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-                          {lang.scriptName.split(' ')[0]}
+                          {content.scriptShortNames[lang.code]}
                         </span>
                       </div>
 
@@ -186,8 +178,10 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
           <div className="mt-4 p-3 rounded-xl bg-slate-100/70 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 flex items-start gap-2.5">
             <Sparkles className="w-4 h-4 text-[#D97753] shrink-0 mt-0.5" />
             <div className="text-xs text-slate-600 dark:text-slate-400">
-              <span className="font-medium text-slate-800 dark:text-slate-200">{currentMeta.name}: </span>
-              {currentMeta.culturalHeritage}
+              <span className="font-medium text-slate-800 dark:text-slate-200">
+                {getLangName(selectedLang, selectedLang)}:{' '}
+              </span>
+              {content.culturalHeritage[selectedLang]}
             </div>
           </div>
         </div>
@@ -199,11 +193,11 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
             onClick={handleContinue}
             className="w-full h-13 rounded-2xl bg-[#1B382B] hover:bg-[#142A20] active:scale-[0.99] text-[#FAF8F5] font-semibold text-sm sm:text-base flex items-center justify-center gap-2 shadow-lg shadow-[#1B382B]/20 transition-all cursor-pointer"
           >
-            <span>{continueLabels[selectedLang]}</span>
+            <span>{copy.onboarding.enterDictionary}</span>
           </button>
 
           <p className="text-center text-[11px] text-slate-500 dark:text-slate-400 mt-2.5">
-            No account, email, or internet connection required. Operates offline.
+            {copy.onboarding.offlineFootnote}
           </p>
         </div>
       </div>

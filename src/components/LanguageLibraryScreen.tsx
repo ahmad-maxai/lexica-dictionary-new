@@ -3,6 +3,12 @@ import { LanguageCode, InstalledPack } from '../types/dictionary';
 import { LANGUAGE_LIST } from '../data/languages';
 import { dictionaryDb } from '../services/dictionaryDatabase';
 import {
+  getUiCopy,
+  getContentCopy,
+  formatText,
+  getLangName,
+} from '../i18n';
+import {
   Layers,
   HardDriveDownload,
   CheckCircle2,
@@ -13,17 +19,22 @@ import {
 } from 'lucide-react';
 
 interface LanguageLibraryScreenProps {
+  interfaceLang: LanguageCode;
   installedPacks: Record<LanguageCode, InstalledPack>;
   onTogglePack: (code: LanguageCode) => void;
   onSetLanguages: (source: LanguageCode, target: LanguageCode) => void;
 }
 
 export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
+  interfaceLang,
   installedPacks,
   onTogglePack,
 }) => {
   const [expandedLang, setExpandedLang] = useState<LanguageCode | null>('ha');
   const [downloadingCode, setDownloadingCode] = useState<LanguageCode | null>(null);
+
+  const copy = getUiCopy(interfaceLang);
+  const content = getContentCopy(interfaceLang);
 
   const liveStats = dictionaryDb.getLanguagePackStats();
 
@@ -53,19 +64,22 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
         <div>
           <h1 className="text-2xl font-bold font-serif-editorial text-slate-900 dark:text-slate-50 flex items-center gap-2">
             <Layers className="w-6 h-6 text-[#204031] dark:text-[#7E9E88]" />
-            <span>Language Pack Library</span>
+            <span>{copy.library.title}</span>
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Bundled local dictionary datasets, orthographic profiles, and live record counts.
+            {copy.library.subtitle}
           </p>
         </div>
 
         {/* Real Storage & Record Summary */}
         <div className="flex items-center gap-2 bg-white dark:bg-[#15231D] px-3.5 py-2 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs">
           <Database className="w-4 h-4 text-[#345E4C] dark:text-[#7E9E88]" />
-          <div className="text-slate-700 dark:text-slate-300">
-            <span className="font-bold tabular-nums">{totalInstalledMb.toFixed(2)} MB</span> Local Data ·{' '}
-            <span className="font-semibold tabular-nums">{totalActiveEntries}</span> entries ({installedCount}/7 active)
+          <div className="text-slate-700 dark:text-slate-300 tabular-nums">
+            {formatText(copy.library.localDataSummary, {
+              mb: totalInstalledMb.toFixed(2),
+              entries: totalActiveEntries,
+              active: installedCount,
+            })}
           </div>
         </div>
       </div>
@@ -114,9 +128,9 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                   <div className="min-w-0">
                     <div className="flex items-baseline gap-2">
                       <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 truncate">
-                        {lang.name}
+                        {getLangName(lang.code, interfaceLang)}
                       </h3>
-                      <span className="text-xs font-mono text-slate-500">
+                      <span dir="ltr" className="text-xs font-mono text-slate-500">
                         v{pack.version}
                       </span>
                     </div>
@@ -125,17 +139,17 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                       className={`text-xs text-slate-600 dark:text-slate-400 truncate ${
                         lang.direction === 'rtl' ? 'font-arabic' : 'font-sans'
                       }`}
-                      dir={lang.direction}
                     >
-                      {lang.nativeScript} · {lang.speakersCount} Speakers
+                      {lang.nativeScript} · {content.speakersCounts[lang.code] || lang.speakersCount}{' '}
+                      {copy.library.speakersLabel}
                     </div>
                   </div>
                 </div>
 
                 {/* Status & Pack Actions */}
                 <div className="flex items-center gap-2.5">
-                  <div className="text-right hidden sm:block">
-                    <div className="text-xs font-bold text-slate-800 dark:text-slate-200 tabular-nums">
+                  <div className="text-end hidden sm:block">
+                    <div dir="ltr" className="text-xs font-bold text-slate-800 dark:text-slate-200 tabular-nums">
                       {kbSize} KB ({stat.actualSizeMb.toFixed(2)} MB)
                     </div>
                     <div
@@ -146,8 +160,11 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                       }`}
                     >
                       {isInstalled
-                        ? `${stat.loadedEntriesCount} entries · ${stat.sensesCount} senses`
-                        : 'Not installed (0 active)'}
+                        ? formatText(copy.library.entriesInline, {
+                            entries: stat.loadedEntriesCount,
+                            senses: stat.sensesCount,
+                          })
+                        : copy.library.notInstalledStatus}
                     </div>
                   </div>
 
@@ -164,17 +181,17 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                     {isDownloading ? (
                       <>
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Updating…</span>
+                        <span>{copy.library.updating}</span>
                       </>
                     ) : isInstalled ? (
                       <>
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Installed</span>
+                        <span>{copy.library.installed}</span>
                       </>
                     ) : (
                       <>
                         <HardDriveDownload className="w-3.5 h-3.5" />
-                        <span>Install Pack</span>
+                        <span>{copy.library.installPack}</span>
                       </>
                     )}
                   </button>
@@ -197,31 +214,33 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                       <div className="text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums">
                         {stat.loadedEntriesCount}
                       </div>
-                      <div className="text-[11px] text-slate-500">Entries</div>
+                      <div className="text-[11px] text-slate-500">{copy.library.entriesBox}</div>
                     </div>
                     <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#172B22] border border-slate-200/60 dark:border-slate-800">
                       <div className="text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums">
                         {stat.sensesCount}
                       </div>
-                      <div className="text-[11px] text-slate-500">Word Senses</div>
+                      <div className="text-[11px] text-slate-500">{copy.library.wordSensesBox}</div>
                     </div>
                     <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#172B22] border border-slate-200/60 dark:border-slate-800">
                       <div className="text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums">
                         {stat.translationRelationshipsCount}
                       </div>
-                      <div className="text-[11px] text-slate-500">Translation Links</div>
+                      <div className="text-[11px] text-slate-500">{copy.library.translationLinksBox}</div>
                     </div>
                   </div>
 
                   <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#172B22] border border-slate-200/60 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                    <span className="font-bold text-slate-900 dark:text-slate-100">Cultural & Historical Scope: </span>
-                    {lang.culturalHeritage}
+                    <span className="font-bold text-slate-900 dark:text-slate-100">
+                      {copy.library.culturalScopePrefix}{' '}
+                    </span>
+                    {content.culturalHeritage[lang.code] || lang.culturalHeritage}
                   </div>
 
                   {/* Dialect and Orthography Breakdown */}
                   <div>
                     <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                      Dialectal Varieties & Orthographic Scripts ({lang.dialects.length})
+                      {formatText(copy.library.dialectsHeader, { count: lang.dialects.length })}
                     </h4>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -240,7 +259,7 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                           </div>
                           {dialect.isStandard && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#204031] text-white">
-                              Standard
+                              {copy.common.standardBadge}
                             </span>
                           )}
                         </div>
@@ -251,7 +270,7 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                   {/* Special Linguistic Characters Supported */}
                   <div>
                     <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                      Preserved Orthographic Characters
+                      {copy.library.preservedChars}
                     </h4>
                     <div className="flex flex-wrap gap-1.5">
                       {lang.specialChars.map((ch, idx) => (

@@ -4,6 +4,13 @@ import { LANGUAGES } from '../data/languages';
 import { dictionaryDb } from '../services/dictionaryDatabase';
 import { audioService } from '../services/audioService';
 import {
+  getUiCopy,
+  formatText,
+  getLangName,
+  getLocalizedPos,
+  getLocalizedEquivalence,
+} from '../i18n';
+import {
   X,
   Volume2,
   Bookmark,
@@ -18,6 +25,7 @@ import {
 
 interface WordDetailModalProps {
   word: WordEntry | null;
+  interfaceLang: LanguageCode;
   dictionaryMode?: DictionaryMode;
   targetLang: LanguageCode;
   isSaved: boolean;
@@ -30,6 +38,7 @@ interface WordDetailModalProps {
 
 export const WordDetailModal: React.FC<WordDetailModalProps> = ({
   word,
+  interfaceLang,
   targetLang,
   isSaved,
   onToggleSave,
@@ -42,7 +51,9 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 
   if (!word) return null;
 
+  const copy = getUiCopy(interfaceLang);
   const sourceMeta = LANGUAGES[word.sourceLang];
+  const sourceName = getLangName(sourceMeta.code, interfaceLang);
   const senses = dictionaryDb.getEntrySenses(word.id);
   const morphologicalForms = dictionaryDb.getEntryMorphology(word.id);
   const translationLinks = dictionaryDb.getEntryTranslationLinks(word.id);
@@ -65,7 +76,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 
   const handleCopyCitation = () => {
     const primaryDef = senses[0]?.definition || word.definition;
-    const citation = `${word.headword} (${sourceMeta.name}) ${word.ipa} — ${primaryDef}`;
+    const citation = `${word.headword} (${sourceName}) ${word.ipa} — ${primaryDef}`;
     if (navigator?.clipboard) {
       navigator.clipboard.writeText(citation);
       setCopied(true);
@@ -91,7 +102,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
               {sourceMeta.code.toUpperCase()}
             </span>
             <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">
-              {sourceMeta.name}
+              {sourceName}
             </span>
             {word.dialect && (
               <>
@@ -107,7 +118,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
             <button
               onClick={handleCopyCitation}
               className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              title="Copy citation"
+              title={copy.wordDetail.copyCitation}
             >
               {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
             </button>
@@ -119,7 +130,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                   ? 'text-[#C47248] bg-[#FAF2ED] dark:bg-[#301F17]'
                   : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800'
               }`}
-              title={isSaved ? 'Saved to collection' : 'Save word'}
+              title={isSaved ? copy.common.savedToCollection : copy.common.saveWord}
             >
               <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-current' : ''}`} />
             </button>
@@ -127,7 +138,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
             <button
               onClick={onClose}
               className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              title="Close"
+              title={copy.common.close}
             >
               <X className="w-5 h-5" />
             </button>
@@ -154,7 +165,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                     onClick={handlePlayAudio}
                     disabled={isPlayingAudio}
                     className="p-2.5 rounded-full bg-[#EEF4F0] dark:bg-[#1F372C] text-[#204031] dark:text-[#7E9E88] hover:bg-[#E0EBE4] transition-all active:scale-95 cursor-pointer shadow-xs"
-                    title="Pronounce word"
+                    title={copy.common.pronounce}
                   >
                     <Volume2 className={`w-4 h-4 ${isPlayingAudio ? 'animate-pulse text-[#C47248]' : ''}`} />
                   </button>
@@ -170,27 +181,27 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 
               {word.tonePattern && (
                 <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
-                  Tone: {word.tonePattern}
+                  {copy.wordDetail.tonePrefix} {word.tonePattern}
                 </span>
               )}
             </div>
 
             {/* Pronunciation & Grammatical Metadata */}
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-400 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-              <span className="font-mono bg-slate-100 dark:bg-slate-800/80 px-2 py-0.5 rounded text-slate-700 dark:text-slate-300">
+              <span dir="ltr" className="font-mono bg-slate-100 dark:bg-slate-800/80 px-2 py-0.5 rounded text-slate-700 dark:text-slate-300">
                 {word.ipa}
               </span>
               {word.audioPhoneticText && (
                 <>
                   <span>·</span>
-                  <span className="font-mono text-[#C47248] dark:text-[#E28D70]">
+                  <span dir="ltr" className="font-mono text-[#C47248] dark:text-[#E28D70]">
                     {word.audioPhoneticText}
                   </span>
                 </>
               )}
               <span>·</span>
               <span className="italic font-medium text-slate-800 dark:text-slate-200">
-                {word.partOfSpeech}
+                {getLocalizedPos(word.partOfSpeech, interfaceLang)}
               </span>
               {word.genderOrClass && (
                 <>
@@ -214,19 +225,19 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                     key={sense.id}
                     className={
                       senses.length > 1
-                        ? 'pl-3 border-l-2 border-[#204031]/25 dark:border-[#7E9E88]/30 space-y-1'
+                        ? 'ps-3 border-s-2 border-[#204031]/25 dark:border-[#7E9E88]/30 space-y-1'
                         : 'space-y-1'
                     }
                   >
                     <div className="text-sm sm:text-base leading-relaxed text-slate-800 dark:text-slate-200">
                       {senses.length > 1 && (
-                        <span className="font-bold text-[#204031] dark:text-[#7E9E88] mr-1.5">
+                        <span className="font-bold text-[#204031] dark:text-[#7E9E88] me-1.5">
                           {sense.senseNumber}.
                         </span>
                       )}
                       {senses.length > 1 && sense.partOfSpeech !== word.partOfSpeech && (
-                        <span className="italic text-xs text-slate-500 mr-1.5">
-                          ({sense.partOfSpeech})
+                        <span className="italic text-xs text-slate-500 me-1.5">
+                          ({getLocalizedPos(sense.partOfSpeech, interfaceLang)})
                         </span>
                       )}
                       <span>{sense.definition}</span>
@@ -234,14 +245,14 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 
                     {sense.usageNote && (
                       <p className="text-xs text-[#C47248] dark:text-[#E28D70] leading-relaxed">
-                        Usage: {sense.usageNote}
+                        {copy.wordDetail.usagePrefix} {sense.usageNote}
                       </p>
                     )}
                   </div>
                 ))
               ) : (
                 <div className="text-sm sm:text-base leading-relaxed text-slate-800 dark:text-slate-200">
-                  {word.definition || 'No definition available in the current dataset.'}
+                  {word.definition || copy.wordDetail.noDefinitionDataset}
                 </div>
               )}
             </div>
@@ -252,7 +263,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
             <div>
               <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2.5 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-[#345E4C] dark:text-[#7E9E88]" />
-                <span>Morphological & Inflected Forms</span>
+                <span>{copy.wordDetail.morphologicalForms}</span>
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {morphologicalForms.map((morph, idx) => (
@@ -289,10 +300,15 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                 <Globe2 className="w-3.5 h-3.5 text-[#345E4C] dark:text-[#7E9E88]" />
-                <span>Cross-Language Translation Relationships</span>
+                <span>{copy.wordDetail.crossLangRelationships}</span>
               </h2>
               <span className="text-[11px] text-slate-400">
-                {translationLinks.length} linked {translationLinks.length === 1 ? 'sense' : 'senses'}
+                {formatText(
+                  translationLinks.length === 1
+                    ? copy.wordDetail.linkedSenseSingular
+                    : copy.wordDetail.linkedSensePlural,
+                  { count: translationLinks.length }
+                )}
               </span>
             </div>
 
@@ -323,11 +339,11 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                             {langMeta.code.toUpperCase()}
                           </span>
                           <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">
-                            {langMeta.name}
+                            {getLangName(langMeta.code, interfaceLang)}
                           </span>
                           {isCurrentTarget && (
                             <span className="text-[10px] font-medium bg-[#204031] text-white px-1.5 py-0.5 rounded">
-                              Selected Target
+                              {copy.wordDetail.selectedTarget}
                             </span>
                           )}
                         </div>
@@ -337,8 +353,8 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                             onClick={() => onSetLanguages(word.sourceLang, targetCode)}
                             className="text-[11px] text-[#345E4C] dark:text-[#7E9E88] hover:underline flex items-center gap-1 cursor-pointer"
                           >
-                            <span>Explore Pair</span>
-                            <ArrowRight className="w-3 h-3" />
+                            <span>{copy.wordDetail.explorePair}</span>
+                            <ArrowRight className="w-3 h-3 rtl:rotate-180" />
                           </button>
                         )}
                       </div>
@@ -346,7 +362,10 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                       {links.map((rel) => {
                         const linkedSense = senseById.get(rel.sourceSenseId);
                         return (
-                          <div key={rel.id} className="mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800/60 first:border-t-0 first:pt-0">
+                          <div
+                            key={rel.id}
+                            className="mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800/60 first:border-t-0 first:pt-0"
+                          >
                             <div className="flex flex-wrap items-baseline gap-2">
                               <span
                                 className={`text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100 ${
@@ -357,7 +376,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                                 {rel.targetHeadword}
                               </span>
                               {rel.transliteration && (
-                                <span className="text-xs text-slate-500 font-mono">
+                                <span dir="ltr" className="text-xs text-slate-500 font-mono">
                                   [{rel.transliteration}]
                                 </span>
                               )}
@@ -366,9 +385,13 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                                   · {rel.scriptVariant}
                                 </span>
                               )}
-                              <span className="text-[11px] text-slate-500 italic ml-auto">
-                                {rel.equivalenceType}
-                                {senses.length > 1 && linkedSense ? ` · Sense ${linkedSense.senseNumber}` : ''}
+                              <span className="text-[11px] text-slate-500 italic ms-auto">
+                                {getLocalizedEquivalence(rel.equivalenceType, interfaceLang)}
+                                {senses.length > 1 && linkedSense
+                                  ? ` · ${formatText(copy.wordDetail.sensePrefix, {
+                                      num: linkedSense.senseNumber,
+                                    })}`
+                                  : ''}
                               </span>
                             </div>
 
@@ -378,7 +401,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 
                             {rel.contextualNote && (
                               <p className="text-[11px] text-[#345E4C] dark:text-[#7E9E88] mt-1">
-                                Context: {rel.contextualNote}
+                                {copy.wordDetail.contextPrefix} {rel.contextualNote}
                               </p>
                             )}
                           </div>
@@ -390,7 +413,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
               </div>
             ) : (
               <div className="p-4 rounded-2xl bg-white dark:bg-[#162720] border border-dashed border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
-                No cross-language translation relationships are linked to this entry in the local dataset.
+                {copy.wordDetail.noCrossLangLinks}
               </div>
             )}
           </div>
@@ -400,7 +423,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
             <div>
               <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-1.5">
                 <BookOpen className="w-3.5 h-3.5 text-[#345E4C] dark:text-[#7E9E88]" />
-                <span>Example Sentences & Usage Context</span>
+                <span>{copy.wordDetail.exampleSentencesTitle}</span>
               </h2>
 
               <div className="space-y-2.5">
@@ -425,7 +448,9 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                     {ex.culturalContext && (
                       <div className="text-[11px] text-[#C47248] dark:text-[#E28D70] mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
                         <Sparkles className="w-3 h-3 shrink-0" />
-                        <span>Context: {ex.culturalContext}</span>
+                        <span>
+                          {copy.wordDetail.contextPrefix} {ex.culturalContext}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -438,13 +463,17 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
           {(word.etymology || word.rootWord || word.culturalNote) && (
             <div className="p-4 rounded-2xl bg-[#F0EBE1] dark:bg-[#182A22] border border-[#E2D8C6] dark:border-slate-800 space-y-2">
               <h3 className="text-xs font-bold uppercase tracking-wider text-[#345E4C] dark:text-[#7E9E88]">
-                Etymology & Cultural Lore
+                {copy.wordDetail.etymologyLoreTitle}
               </h3>
 
               {word.rootWord && (
                 <div className="text-xs">
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">Linguistic Root: </span>
-                  <span className="font-mono text-[#C47248] dark:text-[#E28D70] font-medium">{word.rootWord}</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                    {copy.wordDetail.linguisticRoot}{' '}
+                  </span>
+                  <span dir="ltr" className="font-mono text-[#C47248] dark:text-[#E28D70] font-medium">
+                    {word.rootWord}
+                  </span>
                 </div>
               )}
 
@@ -456,7 +485,7 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 
               {word.culturalNote && (
                 <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed pt-1 border-t border-black/5 dark:border-white/5">
-                  <span className="font-semibold">Context: </span>
+                  <span className="font-semibold">{copy.wordDetail.contextPrefix} </span>
                   {word.culturalNote}
                 </p>
               )}
@@ -470,7 +499,9 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {word.synonyms.length > 0 && (
                 <div className="p-3.5 rounded-2xl bg-white dark:bg-[#162720] border border-slate-200/80 dark:border-slate-800">
-                  <div className="text-xs font-semibold text-slate-500 mb-1.5">Synonyms</div>
+                  <div className="text-xs font-semibold text-slate-500 mb-1.5">
+                    {copy.wordDetail.synonyms}
+                  </div>
                   <div className="flex flex-wrap gap-1.5">
                     {word.synonyms.map((s, idx) => (
                       <button
@@ -488,7 +519,9 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 
               {word.antonyms.length > 0 && (
                 <div className="p-3.5 rounded-2xl bg-white dark:bg-[#162720] border border-slate-200/80 dark:border-slate-800">
-                  <div className="text-xs font-semibold text-slate-500 mb-1.5">Antonyms</div>
+                  <div className="text-xs font-semibold text-slate-500 mb-1.5">
+                    {copy.wordDetail.antonyms}
+                  </div>
                   <div className="flex flex-wrap gap-1.5">
                     {word.antonyms.map((a, idx) => (
                       <button
@@ -506,7 +539,9 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 
               {word.relatedWords && word.relatedWords.length > 0 && (
                 <div className="p-3.5 rounded-2xl bg-white dark:bg-[#162720] border border-slate-200/80 dark:border-slate-800 sm:col-span-2">
-                  <div className="text-xs font-semibold text-slate-500 mb-1.5">Related Words</div>
+                  <div className="text-xs font-semibold text-slate-500 mb-1.5">
+                    {copy.wordDetail.relatedWords}
+                  </div>
                   <div className="flex flex-wrap gap-1.5">
                     {word.relatedWords.map((relWord, idx) => (
                       <button
@@ -526,8 +561,10 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 
           {/* Source & Dataset Attribution Footer */}
           <div className="text-[11px] text-slate-400 dark:text-slate-500 pt-2 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-2">
-            <span>Source: {word.sourceAttribution || 'Lexica Starter Corpus'}</span>
             <span>
+              {copy.wordDetail.sourcePrefix} {word.sourceAttribution || 'Lexica Starter Corpus'}
+            </span>
+            <span dir="ltr">
               {word.license || 'CC BY-SA 4.0'} · v{word.datasetVersion || '2026.4.0'}
             </span>
           </div>

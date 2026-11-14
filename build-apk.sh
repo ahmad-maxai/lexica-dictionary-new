@@ -16,6 +16,20 @@ export JAVA_HOME="$JDK_DIR"
 export PATH="$JAVA_HOME/bin:$PATH"
 echo "Java Version: $($JAVA_HOME/bin/java -version 2>&1 | head -n 1)"
 
+if [ ! -f "$DIR/android/app/debug.keystore" ]; then
+  echo "Generating debug keystore..."
+  "$JAVA_HOME/bin/keytool" -genkeypair -v \
+    -keystore "$DIR/android/app/debug.keystore" \
+    -storetype PKCS12 \
+    -storepass android \
+    -alias androiddebugkey \
+    -keypass android \
+    -keyalg RSA \
+    -keysize 2048 \
+    -validity 10000 \
+    -dname "CN=Android Debug,O=Android,C=US"
+fi
+
 echo "=== [2/5] Setting up Android Commandline Tools ==="
 mkdir -p "$SDK_DIR/cmdline-tools"
 if [ ! -f "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then

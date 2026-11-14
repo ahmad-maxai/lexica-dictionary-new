@@ -1,13 +1,18 @@
 import React, { useState } from 'react';
 import { LanguageCode } from '../types/dictionary';
 import { LANGUAGES } from '../data/languages';
-import { QUIZ_QUESTIONS } from '../data/dictionaryData';
 import { dictionaryDb } from '../services/dictionaryDatabase';
 import { audioService } from '../services/audioService';
+import {
+  getUiCopy,
+  getContentCopy,
+  formatText,
+  getLangName,
+  getLocalizedPos,
+} from '../i18n';
 import confetti from 'canvas-confetti';
 import {
   GraduationCap,
-  Sparkles,
   RotateCw,
   CheckCircle2,
   XCircle,
@@ -16,10 +21,10 @@ import {
   ChevronLeft,
   Trophy,
   Flame,
-  BookOpen,
 } from 'lucide-react';
 
 interface LearnScreenProps {
+  interfaceLang: LanguageCode;
   sourceLang: LanguageCode;
   targetLang: LanguageCode;
   quizStreak: number;
@@ -30,41 +35,49 @@ interface LearnScreenProps {
 }
 
 export const LearnScreen: React.FC<LearnScreenProps> = ({
+  interfaceLang,
   sourceLang,
   targetLang,
   quizStreak,
-  totalQuizzesTaken,
   totalCardsReviewed,
   onRecordQuiz,
   onRecordCardsReviewed,
 }) => {
-  const [activeTab, setActiveTab] = useState<'flashcards' | 'quiz' | 'spelling'>('flashcards');
+  const [activeTab, setActiveTab] = useState<'flashcards' | 'quiz'>('flashcards');
 
   // Flashcards state
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
-  const [reviewedCountInSession, setReviewedCountInSession] = useState(0);
 
   // Quiz state
   const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
-  const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  const [selectedOptionIndex, setSelectedOptionIndex] = useState<number | null>(null);
   const [isAnswerSubmitted, setIsAnswerSubmitted] = useState(false);
   const [quizScore, setQuizScore] = useState(0);
   const [isQuizCompleted, setIsQuizCompleted] = useState(false);
 
+  const copy = getUiCopy(interfaceLang);
+  const content = getContentCopy(interfaceLang);
+  const quizQuestions = content.quizQuestions;
+
   // Prepare cards based on dictionary entries
   const allEntries = dictionaryDb.getAllEntries();
   const pairEntries = allEntries.filter(
-    (e) => (e.sourceLang === sourceLang && !!e.translations[targetLang]?.length) ||
-           (e.sourceLang === targetLang && !!e.translations[sourceLang]?.length)
+    (e) =>
+      (e.sourceLang === sourceLang && !!e.translations[targetLang]?.length) ||
+      (e.sourceLang === targetLang && !!e.translations[sourceLang]?.length)
   );
   const flashcardList = pairEntries.length > 0 ? pairEntries : allEntries;
   const currentCard = flashcardList.length > 0 ? flashcardList[currentCardIndex % flashcardList.length] : null;
   const sourceMeta = currentCard ? LANGUAGES[currentCard.sourceLang] : LANGUAGES[sourceLang];
   const targetMeta = LANGUAGES[targetLang];
+  const targetName = getLangName(targetLang, interfaceLang);
   const currentTranslation = currentCard
     ? currentCard.translations[targetLang]?.[0] || {
-        headword: currentCard.definitionEn || currentCard.definition,
+        headword:
+          currentCard.translations[interfaceLang]?.[0]?.headword ||
+          currentCard.definitionEn ||
+          currentCard.definition,
         transliteration: '',
         definition: currentCard.definition,
         partOfSpeech: currentCard.partOfSpeech,
@@ -74,7 +87,6 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
   const handleNextCard = () => {
     setIsFlipped(false);
     setCurrentCardIndex((prev) => (prev + 1) % flashcardList.length);
-    setReviewedCountInSession((prev) => prev + 1);
     onRecordCardsReviewed(1);
   };
 
@@ -90,30 +102,31 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
   };
 
   // Quiz handling
-  const currentQuestion = QUIZ_QUESTIONS[currentQuizIndex];
+  const currentQuestion = quizQuestions[currentQuizIndex % quizQuestions.length];
 
-  const handleSelectOption = (option: string) => {
+  const handleSelectOption = (idx: number) => {
     if (isAnswerSubmitted) return;
-    setSelectedOption(option);
+    setSelectedOptionIndex(idx);
   };
 
   const handleSubmitAnswer = () => {
-    if (!selectedOption || isAnswerSubmitted) return;
+    if (selectedOptionIndex === null || isAnswerSubmitted) return;
     setIsAnswerSubmitted(true);
-    const isCorrect = selectedOption === currentQuestion.correctAnswer;
+    const chosen = currentQuestion.options[selectedOptionIndex];
+    const isCorrect = chosen === currentQuestion.correctAnswer;
     if (isCorrect) {
       setQuizScore((prev) => prev + 1);
     }
   };
 
   const handleNextQuestion = () => {
-    setSelectedOption(null);
+    setSelectedOptionIndex(null);
     setIsAnswerSubmitted(false);
-    if (currentQuizIndex + 1 < QUIZ_QUESTIONS.length) {
+    if (currentQuizIndex + 1 < quizQuestions.length) {
       setCurrentQuizIndex((prev) => prev + 1);
     } else {
       setIsQuizCompleted(true);
-      onRecordQuiz(quizScore, QUIZ_QUESTIONS.length);
+      onRecordQuiz(quizScore, quizQuestions.length);
       try {
         confetti({
           particleCount: 80,
@@ -126,7 +139,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
 
   const handleRestartQuiz = () => {
     setCurrentQuizIndex(0);
-    setSelectedOption(null);
+    setSelectedOptionIndex(null);
     setIsAnswerSubmitted(false);
     setQuizScore(0);
     setIsQuizCompleted(false);
@@ -139,21 +152,21 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
         <div>
           <h1 className="text-2xl font-bold font-serif-editorial text-slate-900 dark:text-slate-50 flex items-center gap-2">
             <GraduationCap className="w-6 h-6 text-[#204031] dark:text-[#7E9E88]" />
-            <span>Practice & Retention</span>
+            <span>{copy.learn.title}</span>
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Offline spaced flashcards, tone exercises, and cultural quizzes.
+            {copy.learn.subtitle}
           </p>
         </div>
 
-        {/* Minimal Unboxed Metrics (anti-slop clean text discipline) */}
+        {/* Minimal Unboxed Metrics */}
         <div className="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
           <div className="flex items-center gap-1.5 font-medium">
             <Flame className="w-4 h-4 text-[#D97753]" />
             <span className="font-bold text-slate-900 dark:text-slate-100 tabular-nums">
-              {quizStreak} Day
+              {quizStreak} {copy.learn.dayUnit}
             </span>
-            <span>Streak</span>
+            <span>{copy.learn.streakLabel}</span>
           </div>
           <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">·</span>
           <div className="flex items-center gap-1.5 font-medium">
@@ -161,7 +174,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
             <span className="font-bold text-slate-900 dark:text-slate-100 tabular-nums">
               {totalCardsReviewed}
             </span>
-            <span>Reviewed</span>
+            <span>{copy.learn.reviewedLabel}</span>
           </div>
         </div>
       </div>
@@ -176,7 +189,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
           }`}
         >
-          Spaced Flashcards
+          {copy.learn.spacedFlashcards}
         </button>
         <button
           onClick={() => setActiveTab('quiz')}
@@ -186,23 +199,26 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
           }`}
         >
-          Diacritic & Translation Quiz
+          {copy.learn.diacriticQuiz}
         </button>
       </div>
 
       {/* --- TAB 1: FLASHCARDS --- */}
       {activeTab === 'flashcards' && (!currentCard || !currentTranslation) && (
         <div className="p-8 rounded-3xl bg-white dark:bg-[#15231D] border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500">
-          No language packs are currently active. Install a language pack in Library to study flashcards.
+          {copy.learn.noPacksActive}
         </div>
       )}
       {activeTab === 'flashcards' && currentCard && currentTranslation && (
         <div className="space-y-4">
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>
-              Card {currentCardIndex + 1} of {flashcardList.length}
+              {formatText(copy.learn.cardOf, {
+                current: currentCardIndex + 1,
+                total: flashcardList.length,
+              })}
             </span>
-            <span>Tap card to reveal definition & translation</span>
+            <span>{copy.learn.tapToReveal}</span>
           </div>
 
           {/* 3D Interactive Card Flip Container */}
@@ -214,16 +230,16 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/80 pb-3">
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-[#204031] text-white">
-                  {sourceMeta.code.toUpperCase()} · {sourceMeta.name}
+                  {sourceMeta.code.toUpperCase()} · {getLangName(sourceMeta.code, interfaceLang)}
                 </span>
-                <span className="text-xs text-slate-500 font-mono">{currentCard.ipa}</span>
+                <span dir="ltr" className="text-xs text-slate-500 font-mono">{currentCard.ipa}</span>
               </div>
 
               <button
                 type="button"
                 onClick={handleCardSpeak}
                 className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 transition-colors"
-                title="Pronounce"
+                title={copy.common.pronounce}
               >
                 <Volume2 className="w-4 h-4" />
               </button>
@@ -249,18 +265,18 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
                   )}
 
                   <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 italic">
-                    {currentCard.partOfSpeech}
+                    {getLocalizedPos(currentCard.partOfSpeech, interfaceLang)}
                   </div>
 
                   <div className="mt-6 flex items-center justify-center gap-1 text-xs text-slate-400">
                     <RotateCw className="w-3.5 h-3.5" />
-                    <span>Flip to see translation in {targetMeta.name}</span>
+                    <span>{formatText(copy.learn.flipToSeeTranslation, { target: targetName })}</span>
                   </div>
                 </div>
               ) : (
                 <div className="animate-in fade-in duration-200">
                   <div className="text-xs font-bold uppercase tracking-wider text-[#345E4C] dark:text-[#7E9E88] mb-1">
-                    {targetMeta.name} Translation
+                    {formatText(copy.learn.translationHeading, { target: targetName })}
                   </div>
 
                   <div
@@ -278,7 +294,9 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
 
                   {currentCard.culturalNote && (
                     <div className="mt-4 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/50 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 max-w-sm mx-auto">
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">Cultural insight: </span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200">
+                        {copy.learn.culturalInsight}{' '}
+                      </span>
                       {currentCard.culturalNote}
                     </div>
                   )}
@@ -296,8 +314,8 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
                 }}
                 className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1 cursor-pointer"
               >
-                <ChevronLeft className="w-3.5 h-3.5" />
-                <span>Previous</span>
+                <ChevronLeft className="w-3.5 h-3.5 rtl:rotate-180" />
+                <span>{copy.learn.previous}</span>
               </button>
 
               <button
@@ -309,7 +327,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
                 className="text-xs font-medium text-[#345E4C] dark:text-[#7E9E88] flex items-center gap-1"
               >
                 <RotateCw className="w-3 h-3" />
-                <span>{isFlipped ? 'Show Term' : 'Show Meaning'}</span>
+                <span>{isFlipped ? copy.learn.showTerm : copy.learn.showMeaning}</span>
               </button>
 
               <button
@@ -320,8 +338,8 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
                 }}
                 className="px-3.5 py-1.5 rounded-xl bg-[#1B382B] text-white text-xs font-semibold hover:bg-[#142A20] flex items-center gap-1 cursor-pointer shadow-xs"
               >
-                <span>Next Card</span>
-                <ChevronRight className="w-3.5 h-3.5" />
+                <span>{copy.learn.nextCard}</span>
+                <ChevronRight className="w-3.5 h-3.5 rtl:rotate-180" />
               </button>
             </div>
           </div>
@@ -336,10 +354,16 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
               {/* Quiz Progress Header */}
               <div className="flex items-center justify-between text-xs text-slate-500 pb-3 border-b border-slate-100 dark:border-slate-800">
                 <span className="font-semibold text-slate-900 dark:text-slate-100">
-                  Question {currentQuizIndex + 1} of {QUIZ_QUESTIONS.length}
+                  {formatText(copy.learn.questionOf, {
+                    current: currentQuizIndex + 1,
+                    total: quizQuestions.length,
+                  })}
                 </span>
                 <span className="font-mono">
-                  Score: {quizScore} / {currentQuizIndex + (isAnswerSubmitted ? 1 : 0)}
+                  {formatText(copy.learn.scoreLabel, {
+                    score: quizScore,
+                    answered: currentQuizIndex + (isAnswerSubmitted ? 1 : 0),
+                  })}
                 </span>
               </div>
 
@@ -354,8 +378,8 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
                 </h3>
 
                 {currentQuestion.phoneticHint && (
-                  <div className="text-xs text-slate-500 font-mono mt-1">
-                    Hint: {currentQuestion.phoneticHint}
+                  <div dir="ltr" className="text-xs text-slate-500 font-mono mt-1 inline-block">
+                    {copy.learn.hintPrefix} {currentQuestion.phoneticHint}
                   </div>
                 )}
               </div>
@@ -363,7 +387,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
               {/* Options List */}
               <div className="space-y-2.5">
                 {currentQuestion.options.map((option, idx) => {
-                  const isSelected = selectedOption === option;
+                  const isSelected = selectedOptionIndex === idx;
                   const isCorrect = option === currentQuestion.correctAnswer;
 
                   let optionStyle =
@@ -384,8 +408,8 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
                       key={idx}
                       type="button"
                       disabled={isAnswerSubmitted}
-                      onClick={() => handleSelectOption(option)}
-                      className={`w-full text-left p-3.5 rounded-2xl border text-xs sm:text-sm transition-all flex items-start gap-3 cursor-pointer ${optionStyle}`}
+                      onClick={() => handleSelectOption(idx)}
+                      className={`w-full text-start p-3.5 rounded-2xl border text-xs sm:text-sm transition-all flex items-start gap-3 cursor-pointer ${optionStyle}`}
                     >
                       <div className="w-5 h-5 rounded-full border flex items-center justify-center shrink-0 text-xs font-mono mt-0.5">
                         {String.fromCharCode(65 + idx)}
@@ -406,7 +430,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
               {isAnswerSubmitted && (
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-[#182A22] border border-slate-200 dark:border-slate-800 text-xs leading-relaxed animate-in fade-in">
                   <div className="font-bold text-slate-900 dark:text-slate-100 mb-1">
-                    Linguistic Rationale:
+                    {copy.learn.linguisticRationale}
                   </div>
                   <p className="text-slate-700 dark:text-slate-300">
                     {currentQuestion.explanation}
@@ -419,11 +443,11 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
                 {!isAnswerSubmitted ? (
                   <button
                     type="button"
-                    disabled={!selectedOption}
+                    disabled={selectedOptionIndex === null}
                     onClick={handleSubmitAnswer}
                     className="h-11 px-6 rounded-xl bg-[#1B382B] text-white text-xs font-semibold hover:bg-[#142A20] disabled:opacity-50 disabled:pointer-events-none transition-all cursor-pointer shadow-xs"
                   >
-                    Check Answer
+                    {copy.learn.checkAnswer}
                   </button>
                 ) : (
                   <button
@@ -431,8 +455,12 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
                     onClick={handleNextQuestion}
                     className="h-11 px-6 rounded-xl bg-[#1B382B] text-white text-xs font-semibold hover:bg-[#142A20] transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
                   >
-                    <span>{currentQuizIndex + 1 < QUIZ_QUESTIONS.length ? 'Next Question' : 'Complete Quiz'}</span>
-                    <ChevronRight className="w-4 h-4" />
+                    <span>
+                      {currentQuizIndex + 1 < quizQuestions.length
+                        ? copy.learn.nextQuestion
+                        : copy.learn.completeQuiz}
+                    </span>
+                    <ChevronRight className="w-4 h-4 rtl:rotate-180" />
                   </button>
                 )}
               </div>
@@ -445,12 +473,14 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
               </div>
 
               <h2 className="text-2xl font-bold font-serif-editorial text-slate-900 dark:text-slate-50">
-                Session Completed!
+                {copy.learn.sessionCompleted}
               </h2>
 
               <p className="text-sm text-slate-600 dark:text-slate-400 max-w-sm mx-auto">
-                You scored <span className="font-bold text-slate-900 dark:text-slate-100">{quizScore}</span> out of{' '}
-                <span className="font-bold text-slate-900 dark:text-slate-100">{QUIZ_QUESTIONS.length}</span> on multilingual diacritics and morphology.
+                {formatText(copy.learn.quizScoreSummary, {
+                  score: quizScore,
+                  total: quizQuestions.length,
+                })}
               </p>
 
               <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
@@ -459,7 +489,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
                   onClick={handleRestartQuiz}
                   className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all cursor-pointer"
                 >
-                  Retake Quiz
+                  {copy.learn.retakeQuiz}
                 </button>
 
                 <button
@@ -467,7 +497,7 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
                   onClick={() => setActiveTab('flashcards')}
                   className="px-6 py-2.5 rounded-xl bg-[#1B382B] text-white text-xs font-semibold hover:bg-[#142A20] transition-all cursor-pointer shadow-xs"
                 >
-                  Review Flashcards
+                  {copy.learn.reviewFlashcards}
                 </button>
               </div>
             </div>

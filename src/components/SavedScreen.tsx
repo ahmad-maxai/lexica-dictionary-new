@@ -4,20 +4,24 @@ import { LANGUAGES } from '../data/languages';
 import { dictionaryDb } from '../services/dictionaryDatabase';
 import { audioService } from '../services/audioService';
 import {
+  getUiCopy,
+  formatText,
+  getLangName,
+  getLocalizedCollection,
+} from '../i18n';
+import {
   Bookmark,
-  FolderPlus,
   History,
   Trash2,
   Volume2,
   ArrowRight,
-  BookOpen,
   Plus,
   Sparkles,
-  Check,
   X,
 } from 'lucide-react';
 
 interface SavedScreenProps {
+  interfaceLang: LanguageCode;
   savedWordIds: string[];
   onToggleSave: (wordId: string) => void;
   onSelectWord: (word: WordEntry) => void;
@@ -30,6 +34,7 @@ interface SavedScreenProps {
 }
 
 export const SavedScreen: React.FC<SavedScreenProps> = ({
+  interfaceLang,
   savedWordIds,
   onToggleSave,
   onSelectWord,
@@ -46,6 +51,8 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
   const [newCollectionName, setNewCollectionName] = useState('');
   const [newCollectionDesc, setNewCollectionDesc] = useState('');
 
+  const copy = getUiCopy(interfaceLang);
+
   // Get full word objects for saved IDs
   const savedEntries = dictionaryDb.getAllEntries().filter((entry) => savedWordIds.includes(entry.id));
 
@@ -61,7 +68,7 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
     const newCol: Collection = {
       id: `custom-col-${Date.now()}`,
       name: newCollectionName.trim(),
-      description: newCollectionDesc.trim() || 'Custom user vocabulary collection.',
+      description: newCollectionDesc.trim() || copy.saved.defaultCollectionDesc,
       iconName: 'Folder',
       wordIds: [...savedWordIds],
       isCustom: true,
@@ -77,19 +84,19 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
   return (
     <div className="pb-24 sm:pb-16 text-slate-900 dark:text-slate-100 max-w-3xl mx-auto px-4 sm:px-6 pt-6 transition-colors">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold font-serif-editorial text-slate-900 dark:text-slate-50 flex items-center gap-2">
-            <Bookmark className="w-6 h-6 text-[#C47248] fill-current" />
-            <span>Saved Lexicon</span>
+            <Bookmark className="w-6 h-6 text-[#C47248] fill-current shrink-0" />
+            <span>{copy.saved.title}</span>
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Your offline bookmarks, curated folders, and query log.
+            {copy.saved.subtitle}
           </p>
         </div>
 
-        <div className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-white dark:bg-[#15231D] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300">
-          {savedWordIds.length} Saved Words
+        <div className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-white dark:bg-[#15231D] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 shrink-0">
+          {formatText(copy.saved.savedWordsCount, { count: savedWordIds.length })}
         </div>
       </div>
 
@@ -103,7 +110,7 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
           }`}
         >
-          Bookmarked Words ({savedEntries.length})
+          {formatText(copy.saved.bookmarkedWordsTab, { count: savedEntries.length })}
         </button>
         <button
           onClick={() => setActiveTab('collections')}
@@ -113,7 +120,7 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
           }`}
         >
-          Collections ({collections.length})
+          {formatText(copy.saved.collectionsTab, { count: collections.length })}
         </button>
         <button
           onClick={() => setActiveTab('history')}
@@ -123,7 +130,7 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
           }`}
         >
-          Lookup History
+          {copy.saved.historyTab}
         </button>
       </div>
 
@@ -134,13 +141,13 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             <button
               onClick={() => setSelectedLanguageFilter('all')}
-              className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+              className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap cursor-pointer ${
                 selectedLanguageFilter === 'all'
                   ? 'bg-[#1B382B] text-white'
                   : 'bg-white dark:bg-[#15231D] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
               }`}
             >
-              All Languages
+              {copy.saved.allLanguages}
             </button>
             {Object.values(LANGUAGES).map((lang) => (
               <button
@@ -152,7 +159,7 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
                     : 'bg-white dark:bg-[#15231D] text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800'
                 }`}
               >
-                {lang.name}
+                {getLangName(lang.code, interfaceLang)}
               </button>
             ))}
           </div>
@@ -172,9 +179,9 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#EEF4F0] dark:bg-[#1F372C] text-[#204031] dark:text-[#7E9E88]">
-                          {sourceMeta.code.toUpperCase()} · {sourceMeta.name}
+                          {sourceMeta.code.toUpperCase()} · {getLangName(sourceMeta.code, interfaceLang)}
                         </span>
-                        <span className="text-xs text-slate-500 font-mono">{entry.ipa}</span>
+                        <span dir="ltr" className="text-xs text-slate-500 font-mono">{entry.ipa}</span>
                       </div>
 
                       <div className="flex items-baseline gap-2">
@@ -200,7 +207,7 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
 
                       {targetEquivalent && (
                         <div className="text-xs text-slate-500 dark:text-slate-400 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-1.5">
-                          <span className="text-slate-400">Translation:</span>
+                          <span className="text-slate-400">{copy.saved.translationPrefix}</span>
                           <span className="font-semibold text-slate-800 dark:text-slate-200">
                             {targetEquivalent.headword}
                           </span>
@@ -216,7 +223,7 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
                           audioService.speak(entry.headword, entry.sourceLang, entry.tonePattern);
                         }}
                         className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                        title="Listen"
+                        title={copy.common.listen}
                       >
                         <Volume2 className="w-4 h-4" />
                       </button>
@@ -228,7 +235,7 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
                           onToggleSave(entry.id);
                         }}
                         className="p-2 rounded-xl text-[#C47248] hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                        title="Remove bookmark"
+                        title={copy.saved.removeBookmark}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -241,10 +248,10 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
             <div className="py-12 text-center bg-white dark:bg-[#15231D] rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 p-6">
               <Bookmark className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
               <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                No saved vocabulary in this filter
+                {copy.saved.noSavedTitle}
               </h4>
               <p className="text-xs text-slate-500 max-w-xs mx-auto mt-1">
-                Tap the bookmark icon on any dictionary word or search result to preserve it offline.
+                {copy.saved.noSavedDesc}
               </p>
             </div>
           )}
@@ -254,16 +261,16 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
       {/* --- TAB 2: COLLECTIONS --- */}
       {activeTab === 'collections' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-slate-500">
-              Thematic and personalized study collections
+              {copy.saved.collectionsSubtitle}
             </span>
             <button
               onClick={() => setIsCreatingCollection(true)}
-              className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-[#1B382B] text-white flex items-center gap-1.5 hover:bg-[#142A20] cursor-pointer shadow-xs"
+              className="text-xs font-semibold px-3 py-1.5 rounded-xl bg-[#1B382B] text-white flex items-center gap-1.5 hover:bg-[#142A20] cursor-pointer shadow-xs shrink-0"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>New Collection</span>
+              <span>{copy.saved.newCollection}</span>
             </button>
           </div>
 
@@ -275,12 +282,13 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
             >
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                  Create Vocabulary Collection
+                  {copy.saved.createCollectionTitle}
                 </h3>
                 <button
                   type="button"
                   onClick={() => setIsCreatingCollection(false)}
                   className="text-slate-400 hover:text-slate-600"
+                  title={copy.common.close}
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -291,7 +299,7 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
                   type="text"
                   value={newCollectionName}
                   onChange={(e) => setNewCollectionName(e.target.value)}
-                  placeholder="Collection Name (e.g. Traditional Medicine & Botanicals)"
+                  placeholder={copy.saved.collectionNamePlaceholder}
                   className="w-full h-10 px-3 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-[#204031]"
                   autoFocus
                 />
@@ -301,7 +309,7 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
                 <textarea
                   value={newCollectionDesc}
                   onChange={(e) => setNewCollectionDesc(e.target.value)}
-                  placeholder="Description or cultural notes…"
+                  placeholder={copy.saved.collectionDescPlaceholder}
                   rows={2}
                   className="w-full p-3 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-[#204031]"
                 />
@@ -313,14 +321,14 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
                   onClick={() => setIsCreatingCollection(false)}
                   className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100"
                 >
-                  Cancel
+                  {copy.common.cancel}
                 </button>
                 <button
                   type="submit"
                   disabled={!newCollectionName.trim()}
                   className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-[#1B382B] text-white hover:bg-[#142A20] disabled:opacity-50"
                 >
-                  Save Collection
+                  {copy.saved.saveCollection}
                 </button>
               </div>
             </form>
@@ -328,42 +336,45 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
 
           {/* Collections List */}
           <div className="space-y-3">
-            {collections.map((col) => (
-              <div
-                key={col.id}
-                className="p-5 rounded-2xl bg-white dark:bg-[#15231D] border border-slate-200/90 dark:border-slate-800 shadow-xs flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-[#D97753]" />
-                      <span>{col.name}</span>
-                    </h3>
-                    <span className="text-xs font-mono text-slate-500">
-                      {col.wordIds.length} entries
-                    </span>
+            {collections.map((col) => {
+              const localizedCol = getLocalizedCollection(col, interfaceLang);
+              return (
+                <div
+                  key={col.id}
+                  className="p-5 rounded-2xl bg-white dark:bg-[#15231D] border border-slate-200/90 dark:border-slate-800 shadow-xs flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-[#D97753]" />
+                        <span>{localizedCol.name}</span>
+                      </h3>
+                      <span className="text-xs font-mono text-slate-500">
+                        {formatText(copy.saved.entriesCount, { count: col.wordIds.length })}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed mt-1">
+                      {localizedCol.description}
+                    </p>
                   </div>
 
-                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed mt-1">
-                    {col.description}
-                  </p>
-                </div>
+                  <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400">
+                      {col.isCustom ? copy.saved.customUserFolder : copy.saved.curatedEditorialSet}
+                    </span>
 
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                  <span className="text-[11px] text-slate-400">
-                    {col.isCustom ? 'Custom User Folder' : 'Curated Editorial Set'}
-                  </span>
-
-                  <button
-                    onClick={() => onNavigateToDictionary()}
-                    className="text-xs font-semibold text-[#345E4C] dark:text-[#7E9E88] flex items-center gap-1 hover:underline cursor-pointer"
-                  >
-                    <span>Browse Collection Words</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
+                    <button
+                      onClick={() => onNavigateToDictionary()}
+                      className="text-xs font-semibold text-[#345E4C] dark:text-[#7E9E88] flex items-center gap-1 hover:underline cursor-pointer"
+                    >
+                      <span>{copy.saved.browseCollectionWords}</span>
+                      <ArrowRight className="w-3.5 h-3.5 rtl:rotate-180" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -373,7 +384,7 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <span className="text-xs text-slate-500">
-              Recent dictionary queries stored locally on your device
+              {copy.saved.historySubtitle}
             </span>
             {recentSearches.length > 0 && (
               <button
@@ -381,7 +392,7 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
                 className="text-xs text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>Clear History</span>
+                <span>{copy.saved.clearHistory}</span>
               </button>
             )}
           </div>
@@ -401,7 +412,7 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
                     </span>
                   </div>
 
-                  <ArrowRight className="w-4 h-4 text-slate-400" />
+                  <ArrowRight className="w-4 h-4 text-slate-400 rtl:rotate-180" />
                 </div>
               ))}
             </div>
@@ -409,10 +420,10 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
             <div className="py-12 text-center bg-white dark:bg-[#15231D] rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 p-6">
               <History className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
               <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                No recent searches
+                {copy.saved.noRecentSearches}
               </h4>
               <p className="text-xs text-slate-500 max-w-xs mx-auto mt-1">
-                Searches you make in the dictionary will be listed here for rapid 1-tap re-lookup.
+                {copy.saved.noRecentSearchesDesc}
               </p>
             </div>
           )}

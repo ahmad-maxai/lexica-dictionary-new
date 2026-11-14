@@ -20,7 +20,7 @@ export default function App() {
   const [dictionaryInitialQuery, setDictionaryInitialQuery] = useState('');
   const [collections, setCollections] = useState<Collection[]>(() => StorageService.getCollections());
 
-  // Synchronize dark mode class on <html>
+  // Synchronize dark mode class, theme color, document language & RTL/LTR direction
   useEffect(() => {
     const isDark = preferences.theme === 'dark';
     if (isDark) {
@@ -33,6 +33,12 @@ export default function App() {
       themeMeta.setAttribute('content', isDark ? '#0E1713' : '#FAF8F5');
     }
   }, [preferences.theme]);
+
+  useEffect(() => {
+    if (!preferences.hasCompletedOnboarding) return;
+    document.documentElement.lang = preferences.interfaceLang;
+    document.documentElement.dir = preferences.interfaceLang === 'ar' ? 'rtl' : 'ltr';
+  }, [preferences.interfaceLang, preferences.hasCompletedOnboarding]);
 
   // Handle Onboarding Completion
   const handleCompleteOnboarding = (chosenLang: LanguageCode) => {
@@ -170,11 +176,13 @@ export default function App() {
             onToggleSave={handleToggleSaveWord}
             recentSearches={preferences.recentSearches}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            onRecordSearch={handleRecordSearch}
           />
         )}
 
         {currentTab === 'dictionary' && (
           <DictionaryScreen
+            interfaceLang={preferences.interfaceLang}
             dictionaryMode={preferences.dictionaryMode}
             onSetDictionaryMode={handleSetDictionaryMode}
             sourceLang={preferences.sourceLang}
@@ -191,6 +199,7 @@ export default function App() {
 
         {currentTab === 'learn' && (
           <LearnScreen
+            interfaceLang={preferences.interfaceLang}
             sourceLang={preferences.sourceLang}
             targetLang={preferences.targetLang}
             quizStreak={preferences.quizStreak}
@@ -203,6 +212,7 @@ export default function App() {
 
         {currentTab === 'saved' && (
           <SavedScreen
+            interfaceLang={preferences.interfaceLang}
             savedWordIds={preferences.savedWordIds}
             onToggleSave={handleToggleSaveWord}
             onSelectWord={(word) => setSelectedWord(word)}
@@ -217,6 +227,7 @@ export default function App() {
 
         {currentTab === 'library' && (
           <LanguageLibraryScreen
+            interfaceLang={preferences.interfaceLang}
             installedPacks={preferences.installedPacks}
             onTogglePack={handleTogglePack}
             onSetLanguages={handleSetLanguages}
@@ -228,6 +239,7 @@ export default function App() {
       {selectedWord && (
         <WordDetailModal
           word={selectedWord}
+          interfaceLang={preferences.interfaceLang}
           dictionaryMode={preferences.dictionaryMode}
           targetLang={preferences.targetLang}
           isSaved={preferences.savedWordIds.includes(selectedWord.id)}

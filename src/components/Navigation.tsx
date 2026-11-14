@@ -1,6 +1,6 @@
 import React from 'react';
 import { LanguageCode } from '../types/dictionary';
-import { LANGUAGES } from '../data/languages';
+import { getUiCopy } from '../i18n';
 import {
   Home,
   BookOpen,
@@ -32,55 +32,14 @@ export const Navigation: React.FC<NavigationProps> = ({
   theme,
   onToggleTheme,
 }) => {
-  const currentLangMeta = LANGUAGES[interfaceLang];
+  const copy = getUiCopy(interfaceLang);
 
-  // Localized navigation captions
-  const tabLabels: Record<NavigationTab, Record<LanguageCode, string>> = {
-    home: {
-      en: 'Home',
-      ha: 'Gida',
-      yo: 'Ilé',
-      ff: 'Wuro',
-      ar: 'الرئيسية',
-      fr: 'Accueil',
-      zh: '首页',
-    },
-    dictionary: {
-      en: 'Dictionary',
-      ha: 'Kamus',
-      yo: 'Àtúmọ̀',
-      ff: 'Saggitorde',
-      ar: 'المعجم',
-      fr: 'Dictionnaire',
-      zh: '词典',
-    },
-    learn: {
-      en: 'Learn',
-      ha: 'Koyi',
-      yo: 'Kẹ́kọ̀ọ́',
-      ff: 'Jannu',
-      ar: 'تعلّم',
-      fr: 'Apprendre',
-      zh: '学习',
-    },
-    saved: {
-      en: 'Saved',
-      ha: 'Ajiye',
-      yo: 'Ìpamọ́',
-      ff: 'Moofaa',
-      ar: 'المحفوظات',
-      fr: 'Enregistré',
-      zh: '收藏',
-    },
-    library: {
-      en: 'Library',
-      ha: 'Ɗakin Littattafai',
-      yo: 'Àkójọ',
-      ff: 'Defterdu',
-      ar: 'المكتبة',
-      fr: 'Bibliothèque',
-      zh: '语言库',
-    },
+  const tabLabels: Record<NavigationTab, string> = {
+    home: copy.nav.home,
+    dictionary: copy.nav.dictionary,
+    learn: copy.nav.learn,
+    saved: copy.nav.saved,
+    library: copy.nav.library,
   };
 
   const navItems: Array<{ id: NavigationTab; icon: React.ComponentType<{ className?: string }> }> = [
@@ -105,7 +64,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               L
             </div>
             <span className="font-serif-editorial text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-50 whitespace-nowrap">
-              Lexica
+              {copy.common.appName}
             </span>
           </div>
 
@@ -114,7 +73,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = currentTab === item.id;
-              const label = tabLabels[item.id][interfaceLang] || tabLabels[item.id].en;
+              const label = tabLabels[item.id];
 
               return (
                 <button
@@ -139,7 +98,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             <button
               onClick={onOpenSettings}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-xs font-semibold cursor-pointer"
-              title="Change interface language"
+              title={copy.nav.changeInterfaceLang}
             >
               <Globe2 className="w-3.5 h-3.5 text-[#345E4C] dark:text-[#7E9E88]" />
               <span className="uppercase">{interfaceLang}</span>
@@ -149,7 +108,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             <button
               onClick={() => onToggleTheme(theme === 'dark' ? 'light' : 'dark')}
               className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              title={theme === 'dark' ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
+              title={theme === 'dark' ? copy.nav.switchToLight : copy.nav.switchToDark}
             >
               {theme === 'dark' ? (
                 <Sun className="w-4 h-4 text-amber-400" />
@@ -162,7 +121,7 @@ export const Navigation: React.FC<NavigationProps> = ({
             <button
               onClick={onOpenSettings}
               className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              title="Open Settings"
+              title={copy.nav.openSettings}
             >
               <Settings className="w-4 h-4" />
             </button>
@@ -176,7 +135,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
-            const label = tabLabels[item.id][interfaceLang] || tabLabels[item.id].en;
+            const label = tabLabels[item.id];
 
             return (
               <button

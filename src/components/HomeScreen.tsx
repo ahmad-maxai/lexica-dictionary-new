@@ -11,6 +11,15 @@ import { WORD_OF_THE_DAY, CURATED_COLLECTIONS } from '../data/dictionaryData';
 import { dictionaryDb } from '../services/dictionaryDatabase';
 import { audioService } from '../services/audioService';
 import {
+  getUiCopy,
+  getContentCopy,
+  formatText,
+  getLangName,
+  getLocalizedPos,
+  getLocalizedEquivalence,
+  getLocalizedCollection,
+} from '../i18n';
+import {
   Search,
   ArrowRightLeft,
   Volume2,
@@ -40,9 +49,11 @@ interface HomeScreenProps {
   onToggleSave: (wordId: string) => void;
   recentSearches: string[];
   onOpenSettings: () => void;
+  onRecordSearch?: (term: string) => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
+  interfaceLang,
   dictionaryMode,
   onSetDictionaryMode,
   sourceLang,
@@ -54,13 +65,32 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   savedWordIds,
   onToggleSave,
   recentSearches,
+  onRecordSearch,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSwapping, setIsSwapping] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  const handleSelectSearchResult = (entry: WordEntry) => {
+    if (searchQuery.trim() && onRecordSearch) {
+      onRecordSearch(searchQuery.trim());
+    }
+    onSelectWord(entry);
+  };
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchQuery.trim() && onRecordSearch) {
+      onRecordSearch(searchQuery.trim());
+    }
+  };
+
+  const copy = getUiCopy(interfaceLang);
+  const content = getContentCopy(interfaceLang);
+
   const sourceMeta = LANGUAGES[sourceLang];
-  const targetMeta = LANGUAGES[targetLang];
+  const sourceName = getLangName(sourceLang, interfaceLang);
+  const targetName = getLangName(targetLang, interfaceLang);
 
   const handleSwap = () => {
     setIsSwapping(true);
@@ -114,14 +144,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     };
   }, [searchQuery, activeResultCount, dictionaryMode, standardResponse, multilingualResponse, sourceLang]);
 
-  const languageShortcuts: Array<{ source: LanguageCode; target: LanguageCode; label: string }> = [
-    { source: 'ha', target: 'en', label: 'Hausa ⇄ English' },
-    { source: 'yo', target: 'en', label: 'Yoruba ⇄ English' },
-    { source: 'ar', target: 'en', label: 'Arabic ⇄ English' },
-    { source: 'ar', target: 'ha', label: 'العربية ⇄ Hausa' },
-    { source: 'fr', target: 'en', label: 'Français ⇄ English' },
-    { source: 'zh', target: 'en', label: '中文 ⇄ English' },
-    { source: 'ff', target: 'en', label: 'Fulfulde ⇄ English' },
+  const languageShortcuts: Array<{ source: LanguageCode; target: LanguageCode }> = [
+    { source: 'ha', target: 'en' },
+    { source: 'yo', target: 'en' },
+    { source: 'ar', target: 'en' },
+    { source: 'ar', target: 'ha' },
+    { source: 'fr', target: 'en' },
+    { source: 'zh', target: 'en' },
+    { source: 'ff', target: 'en' },
   ];
 
   const wotdEntry = useMemo(() => {
@@ -132,15 +162,62 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const currentStatus =
     dictionaryMode === 'standard' ? standardResponse?.status : multilingualResponse?.status;
-  const currentMessage =
-    dictionaryMode === 'standard' ? standardResponse?.message : multilingualResponse?.message;
+
+  const getLocalizedStatusCopy = () => {
+    if (!currentStatus || currentStatus === 'ok' || currentStatus === 'browse') {
+      return { title: '', desc: '' };
+    }
+    switch (currentStatus) {
+      case 'language_not_installed':
+        return {
+          title: copy.statuses.language_not_installed_title,
+          desc: copy.statuses.language_not_installed_desc,
+        };
+      case 'invalid_pair':
+        return {
+          title: copy.statuses.invalid_pair_home_title,
+          desc: copy.statuses.invalid_pair_desc,
+        };
+      case 'no_definition':
+        return {
+          title: copy.statuses.no_definition_title,
+          desc: copy.statuses.no_definition_desc,
+        };
+      case 'no_translation':
+        return {
+          title: formatText(copy.statuses.no_translation_title, { target: targetName }),
+          desc: formatText(copy.statuses.no_translation_desc, {
+            source: sourceName,
+            target: targetName,
+          }),
+        };
+      case 'not_found':
+        return {
+          title: formatText(
+            dictionaryMode === 'standard'
+              ? copy.statuses.not_found_home_standard
+              : copy.statuses.not_found_home_multilingual,
+            { source: sourceName, target: targetName }
+          ),
+          desc: formatText(copy.statuses.not_found_desc, { query: searchQuery }),
+        };
+      case 'error':
+      default:
+        return {
+          title: copy.statuses.error_title,
+          desc: copy.statuses.error_desc,
+        };
+    }
+  };
+
+  const localizedStatus = getLocalizedStatusCopy();
 
   return (
     <div className="pb-24 sm:pb-16 text-slate-900 dark:text-slate-100 transition-colors max-w-4xl mx-auto px-4 sm:px-6 pt-3 space-y-4">
       {/* 1. ENGINE MODE SWITCHER (Standard Monolingual vs Multilingual) */}
       <div
         role="tablist"
-        aria-label="Dictionary Mode"
+        aria-label={copy.modes.standard}
         className="grid grid-cols-2 p-1 rounded-2xl bg-[#EFECE5] dark:bg-[#13201A] border border-slate-200/80 dark:border-slate-800"
       >
         <button
@@ -155,7 +232,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           }`}
         >
           <BookOpen className="w-4 h-4 shrink-0" />
-          <span>Standard Dictionary</span>
+          <span>{copy.modes.standard}</span>
         </button>
 
         <button
@@ -170,14 +247,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           }`}
         >
           <Languages className="w-4 h-4 shrink-0" />
-          <span>Multilingual Dictionary</span>
+          <span>{copy.modes.multilingual}</span>
         </button>
       </div>
 
       {/* 2. PRIMARY PROMINENT SEARCH FIELD */}
       <div className="bg-white dark:bg-[#15231D] rounded-2xl p-2 sm:p-2.5 shadow-md shadow-black/5 border-2 border-[#204031]/20 dark:border-[#7E9E88]/30 focus-within:border-[#204031] dark:focus-within:border-[#7E9E88] transition-all">
-        <div className="relative flex items-center">
-          <div className="w-10 h-10 rounded-xl bg-[#EEF4F0] dark:bg-[#1E3328] text-[#204031] dark:text-[#7E9E88] flex items-center justify-center shrink-0 ml-1">
+        <form onSubmit={handleSearchSubmit} className="relative flex items-center">
+          <div className="w-10 h-10 rounded-xl bg-[#EEF4F0] dark:bg-[#1E3328] text-[#204031] dark:text-[#7E9E88] flex items-center justify-center shrink-0 ms-1">
             <Search className="w-5 h-5" />
           </div>
 
@@ -188,45 +265,48 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={
               dictionaryMode === 'standard'
-                ? `Search ${sourceMeta.name} definitions & forms…`
-                : `Search ${sourceMeta.name} → ${targetMeta.name}…`
+                ? formatText(copy.search.homeStandardPlaceholder, { lang: sourceName })
+                : formatText(copy.search.homeMultilingualPlaceholder, {
+                    src: sourceName,
+                    tgt: targetName,
+                  })
             }
             className="w-full h-12 sm:h-14 px-3.5 text-base sm:text-lg font-medium text-slate-900 dark:text-slate-100 placeholder:text-slate-400 bg-transparent focus:outline-none"
-            dir={sourceMeta.direction === 'rtl' && !searchQuery ? 'ltr' : undefined}
+            dir={!searchQuery ? (interfaceLang === 'ar' ? 'rtl' : 'ltr') : sourceMeta.direction}
           />
 
           {searchQuery && (
             <button
               type="button"
               onClick={handleClearSearch}
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 mr-1 transition-colors cursor-pointer"
-              title="Clear search"
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 me-1 transition-colors cursor-pointer"
+              title={copy.common.clearSearch}
             >
               <X className="w-5 h-5" />
             </button>
           )}
-        </div>
+        </form>
       </div>
 
       {/* 3. LANGUAGE SELECTOR(S) */}
       {dictionaryMode === 'standard' ? (
         <div className="bg-[#FAF8F5] dark:bg-[#13201A] p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
           <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
-            Dictionary Language
+            {copy.search.dictionaryLanguage}
           </label>
           <div className="relative">
             <select
               value={sourceLang}
               onChange={(e) => onSetLanguages(e.target.value as LanguageCode, targetLang)}
-              className="w-full h-10 pl-3 pr-8 rounded-xl bg-white dark:bg-[#172B22] border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#204031]"
+              className="w-full h-10 ps-3 pe-8 rounded-xl bg-white dark:bg-[#172B22] border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#204031]"
             >
               {LANGUAGE_LIST.map((lang) => (
                 <option key={lang.code} value={lang.code}>
-                  {lang.name} — {lang.nativeName} ({lang.code.toUpperCase()})
+                  {getLangName(lang.code, interfaceLang)} — {lang.nativeName} ({lang.code.toUpperCase()})
                 </option>
               ))}
             </select>
-            <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <ChevronDown className="w-4 h-4 text-slate-400 absolute end-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
         </div>
       ) : (
@@ -235,21 +315,21 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             {/* Source Language Picker */}
             <div className="flex-1 relative">
               <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
-                Source Language
+                {copy.search.sourceLanguage}
               </label>
               <div className="relative">
                 <select
                   value={sourceLang}
                   onChange={(e) => onSetLanguages(e.target.value as LanguageCode, targetLang)}
-                  className="w-full h-10 pl-3 pr-8 rounded-xl bg-white dark:bg-[#172B22] border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#204031]"
+                  className="w-full h-10 ps-3 pe-8 rounded-xl bg-white dark:bg-[#172B22] border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#204031]"
                 >
                   {LANGUAGE_LIST.map((lang) => (
                     <option key={lang.code} value={lang.code}>
-                      {lang.name} ({lang.code.toUpperCase()})
+                      {getLangName(lang.code, interfaceLang)} ({lang.code.toUpperCase()})
                     </option>
                   ))}
                 </select>
-                <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <ChevronDown className="w-4 h-4 text-slate-400 absolute end-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
             </div>
 
@@ -261,7 +341,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 className={`w-10 h-10 rounded-xl bg-white dark:bg-[#1E3328] text-[#204031] dark:text-[#7E9E88] border border-slate-200 dark:border-slate-700 flex items-center justify-center hover:bg-[#EEF4F0] active:scale-95 transition-all cursor-pointer shadow-xs ${
                   isSwapping ? 'rotate-180 duration-200' : ''
                 }`}
-                title="Swap languages"
+                title={copy.search.swapLanguages}
               >
                 <ArrowRightLeft className="w-4 h-4" />
               </button>
@@ -270,29 +350,29 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             {/* Target Language Picker */}
             <div className="flex-1 relative">
               <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
-                Target Language
+                {copy.search.targetLanguage}
               </label>
               <div className="relative">
                 <select
                   value={targetLang}
                   onChange={(e) => onSetLanguages(sourceLang, e.target.value as LanguageCode)}
-                  className="w-full h-10 pl-3 pr-8 rounded-xl bg-white dark:bg-[#172B22] border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#204031]"
+                  className="w-full h-10 ps-3 pe-8 rounded-xl bg-white dark:bg-[#172B22] border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#204031]"
                 >
                   {LANGUAGE_LIST.map((lang) => (
                     <option key={lang.code} value={lang.code}>
-                      {lang.name} ({lang.code.toUpperCase()})
+                      {getLangName(lang.code, interfaceLang)} ({lang.code.toUpperCase()})
                     </option>
                   ))}
                 </select>
-                <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <ChevronDown className="w-4 h-4 text-slate-400 absolute end-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
             </div>
           </div>
 
           {/* Quick Language Pair Chips */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 shrink-0 mr-1">
-              Quick pairs:
+            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 shrink-0 me-1">
+              {copy.search.quickPairs}
             </span>
             {languageShortcuts.map((pair, idx) => {
               const isActive = sourceLang === pair.source && targetLang === pair.target;
@@ -306,7 +386,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                       : 'bg-white dark:bg-[#15231D] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-slate-300'
                   }`}
                 >
-                  {pair.label}
+                  {getLangName(pair.source, interfaceLang)} ⇄ {getLangName(pair.target, interfaceLang)}
                 </button>
               );
             })}
@@ -319,11 +399,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         <div className="space-y-3 pt-1">
           <div className="flex items-center justify-between text-xs text-slate-500 px-1">
             <span>
-              {dictionaryMode === 'standard' ? `${sourceMeta.name} Dictionary` : `${sourceMeta.name} → ${targetMeta.name}`} · “
-              <strong className="text-slate-800 dark:text-slate-200">{searchQuery}</strong>”
+              {dictionaryMode === 'standard'
+                ? formatText(copy.search.dictionarySubtitle, { lang: sourceName })
+                : `${sourceName} → ${targetName}`}{' '}
+              · “<strong className="text-slate-800 dark:text-slate-200">{searchQuery}</strong>”
             </span>
             <span>
-              {activeResultCount} {activeResultCount === 1 ? 'match' : 'matches'}
+              {activeResultCount}{' '}
+              {activeResultCount === 1 ? copy.search.matchSingular : copy.search.matchPlural}
             </span>
           </div>
 
@@ -338,7 +421,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 return (
                   <div
                     key={entry.id}
-                    onClick={() => onSelectWord(entry)}
+                    onClick={() => handleSelectSearchResult(entry)}
                     className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#15231D] border border-slate-200 dark:border-slate-800 hover:border-[#204031] dark:hover:border-[#7E9E88] shadow-xs hover:shadow-md transition-all cursor-pointer"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -347,21 +430,21 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#EEF4F0] dark:bg-[#1F372C] text-[#204031] dark:text-[#7E9E88]">
                             {entryMeta.code.toUpperCase()}
                           </span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                          <span dir="ltr" className="text-xs text-slate-500 dark:text-slate-400 font-mono">
                             {entry.ipa}
                           </span>
                           <span className="text-slate-300 dark:text-slate-700">·</span>
                           <span className="text-xs italic text-slate-600 dark:text-slate-400">
-                            {entry.partOfSpeech}
+                            {getLocalizedPos(entry.partOfSpeech, interfaceLang)}
                           </span>
                           {matchedField === 'morphology' && (
                             <span className="text-[11px] text-[#C47248] dark:text-[#E28D70] font-medium">
-                              · form: {matchedTerm}
+                              {copy.search.formLabel} {matchedTerm}
                             </span>
                           )}
                           {matchedField === 'synonym' && (
                             <span className="text-[11px] text-[#345E4C] dark:text-[#7E9E88] font-medium">
-                              · synonym match: {matchedTerm}
+                              {copy.search.synonymMatchLabel} {matchedTerm}
                             </span>
                           )}
                         </div>
@@ -389,7 +472,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                               className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed"
                             >
                               {senses.length > 1 && (
-                                <span className="font-semibold text-[#345E4C] dark:text-[#7E9E88] mr-1.5">
+                                <span className="font-semibold text-[#345E4C] dark:text-[#7E9E88] me-1.5">
                                   {sense.senseNumber}.
                                 </span>
                               )}
@@ -402,7 +485,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                           <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                             {morphologicalForms.length > 0 && (
                               <span>
-                                Forms:{' '}
+                                {copy.search.formsPrefix}{' '}
                                 <span className="text-slate-800 dark:text-slate-200 font-medium">
                                   {morphologicalForms
                                     .slice(0, 2)
@@ -413,7 +496,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                             )}
                             {entry.synonyms.length > 0 && (
                               <span>
-                                Synonyms:{' '}
+                                {copy.search.synonymsPrefix}{' '}
                                 <span className="text-slate-800 dark:text-slate-200 font-medium">
                                   {entry.synonyms.slice(0, 3).join(', ')}
                                 </span>
@@ -431,7 +514,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                             audioService.speak(entry.headword, entry.sourceLang, entry.tonePattern);
                           }}
                           className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                          title="Listen"
+                          title={copy.common.listen}
                         >
                           <Volume2 className="w-4 h-4" />
                         </button>
@@ -447,7 +530,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                               ? 'text-[#C47248] bg-[#FAF2ED] dark:bg-[#301F17]'
                               : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                           }`}
-                          title={isSaved ? 'Saved' : 'Save word'}
+                          title={isSaved ? copy.common.saved : copy.common.saveWord}
                         >
                           <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-current' : ''}`} />
                         </button>
@@ -468,12 +551,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 const entrySourceMeta = LANGUAGES[entry.sourceLang];
                 const primaryMatch = senseMatches[0];
                 const rel = primaryMatch?.relationship;
-                const relTargetMeta = rel ? LANGUAGES[rel.targetLang] : targetMeta;
+                const relTargetMeta = rel ? LANGUAGES[rel.targetLang] : LANGUAGES[targetLang];
 
                 return (
                   <div
                     key={entry.id}
-                    onClick={() => onSelectWord(entry)}
+                    onClick={() => handleSelectSearchResult(entry)}
                     className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#15231D] border border-slate-200 dark:border-slate-800 hover:border-[#204031] dark:hover:border-[#7E9E88] shadow-xs hover:shadow-md transition-all cursor-pointer"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -482,16 +565,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#EEF4F0] dark:bg-[#1F372C] text-[#204031] dark:text-[#7E9E88]">
                             {entrySourceMeta.code.toUpperCase()}
                           </span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                          <span dir="ltr" className="text-xs text-slate-500 dark:text-slate-400 font-mono">
                             {entry.ipa}
                           </span>
                           <span className="text-slate-300 dark:text-slate-700">·</span>
                           <span className="text-xs italic text-slate-600 dark:text-slate-400">
-                            {entry.partOfSpeech}
+                            {getLocalizedPos(entry.partOfSpeech, interfaceLang)}
                           </span>
                           {isReverseLookup && (
                             <span className="text-[11px] font-medium text-[#C47248] dark:text-[#E28D70]">
-                              · reverse match
+                              {copy.search.reverseMatch}
                             </span>
                           )}
                         </div>
@@ -526,7 +609,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                             audioService.speak(entry.headword, entry.sourceLang, entry.tonePattern);
                           }}
                           className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                          title="Listen"
+                          title={copy.common.listen}
                         >
                           <Volume2 className="w-4 h-4" />
                         </button>
@@ -542,7 +625,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                               ? 'text-[#C47248] bg-[#FAF2ED] dark:bg-[#301F17]'
                               : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                           }`}
-                          title={isSaved ? 'Saved' : 'Save word'}
+                          title={isSaved ? copy.common.saved : copy.common.saveWord}
                         >
                           <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-current' : ''}`} />
                         </button>
@@ -554,7 +637,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                       <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 text-xs">
                         <div className="min-w-0 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                           <span className="text-slate-400">
-                            {relTargetMeta.name} ({rel.equivalenceType}):
+                            {getLangName(relTargetMeta.code, interfaceLang)} (
+                            {getLocalizedEquivalence(rel.equivalenceType, interfaceLang)}):
                           </span>
                           <span
                             className={`font-semibold text-slate-900 dark:text-slate-100 ${
@@ -565,18 +649,23 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                             {rel.targetHeadword}
                           </span>
                           {rel.transliteration && (
-                            <span className="font-mono text-slate-500">[{rel.transliteration}]</span>
+                            <span dir="ltr" className="font-mono text-slate-500">[{rel.transliteration}]</span>
                           )}
                           {senseMatches.length > 1 && (
                             <span className="text-[11px] text-slate-400">
-                              +{senseMatches.length - 1} more sense{senseMatches.length - 1 > 1 ? 's' : ''}
+                              {formatText(
+                                senseMatches.length - 1 === 1
+                                  ? copy.search.moreSenseSingular
+                                  : copy.search.moreSensePlural,
+                                { count: senseMatches.length - 1 }
+                              )}
                             </span>
                           )}
                         </div>
 
                         <span className="text-[11px] text-[#345E4C] dark:text-[#7E9E88] font-medium flex items-center gap-1 shrink-0">
-                          <span>Details</span>
-                          <ArrowRight className="w-3 h-3" />
+                          <span>{copy.common.details}</span>
+                          <ArrowRight className="w-3 h-3 rtl:rotate-180" />
                         </span>
                       </div>
                     )}
@@ -597,20 +686,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
               <div>
                 <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                  {currentStatus === 'language_not_installed' && 'Language pack not installed'}
-                  {currentStatus === 'invalid_pair' && 'Select two different languages'}
-                  {currentStatus === 'no_definition' && 'No definition available'}
-                  {currentStatus === 'no_translation' &&
-                    `No translation available in ${targetMeta.name}`}
-                  {currentStatus === 'not_found' &&
-                    (dictionaryMode === 'standard'
-                      ? `Word not found in ${sourceMeta.name}`
-                      : `Word not found in ${sourceMeta.name} → ${targetMeta.name}`)}
-                  {currentStatus === 'error' && 'Search failed'}
+                  {localizedStatus.title}
                 </h4>
 
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1 leading-relaxed">
-                  {currentMessage || `No matching record found for “${searchQuery}”.`}
+                  {localizedStatus.desc}
                 </p>
               </div>
 
@@ -620,7 +700,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   onClick={onNavigateToLibrary}
                   className="px-4 py-2 rounded-xl bg-[#1B382B] text-white text-xs font-semibold cursor-pointer hover:bg-[#142A20] transition-all"
                 >
-                  Open Language Library
+                  {copy.statuses.openLanguageLibrary}
                 </button>
               )}
 
@@ -632,18 +712,21 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   onClick={() => onSetDictionaryMode('standard')}
                   className="px-4 py-2 rounded-xl bg-[#1B382B] text-white text-xs font-semibold cursor-pointer hover:bg-[#142A20] transition-all"
                 >
-                  View in {sourceMeta.name} Standard Dictionary
+                  {formatText(copy.statuses.viewInStandardDict, { lang: sourceName })}
                 </button>
               )}
 
               {crossLanguageMatch && (
-                <div className="mt-3 p-3 rounded-xl bg-[#EEF4F0] dark:bg-[#182C22] border border-[#204031]/20 max-w-md mx-auto text-left flex items-center justify-between gap-3">
+                <div className="mt-3 p-3 rounded-xl bg-[#EEF4F0] dark:bg-[#182C22] border border-[#204031]/20 max-w-md mx-auto text-start flex items-center justify-between gap-3">
                   <div>
                     <span className="text-[10px] font-bold text-[#204031] dark:text-[#7E9E88] uppercase tracking-wider block">
-                      Found in another language
+                      {copy.statuses.foundInAnotherLang}
                     </span>
                     <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                      “{crossLanguageMatch.entry.headword}” exists in {crossLanguageMatch.lang.name}
+                      {formatText(copy.statuses.existsInLang, {
+                        word: crossLanguageMatch.entry.headword,
+                        lang: getLangName(crossLanguageMatch.lang.code, interfaceLang),
+                      })}
                     </span>
                   </div>
                   <button
@@ -653,7 +736,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     }}
                     className="px-3 py-1.5 rounded-lg bg-[#204031] text-white text-xs font-semibold shrink-0 cursor-pointer hover:bg-[#152B21] transition-all"
                   >
-                    Switch to {crossLanguageMatch.lang.name}
+                    {formatText(copy.statuses.switchToLang, {
+                      lang: getLangName(crossLanguageMatch.lang.code, interfaceLang),
+                    })}
                   </button>
                 </div>
               )}
@@ -668,7 +753,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
               <History className="w-3.5 h-3.5 text-slate-400" />
-              <span>Recent Lookups</span>
+              <span>{copy.search.recentLookups}</span>
             </h2>
           </div>
 
@@ -692,7 +777,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <div className="flex items-center justify-between mb-2.5">
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-[#D97753]" />
-              <span>Word of the Day</span>
+              <span>{copy.search.wordOfTheDay}</span>
             </h2>
           </div>
 
@@ -702,14 +787,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="flex items-center gap-2 mb-1.5">
+                <div className="flex flex-wrap items-center gap-2 mb-1.5">
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#FAF2ED] dark:bg-[#2B1B14] text-[#C47248] uppercase">
-                    {LANGUAGES[wotdEntry.sourceLang]?.name}
+                    {getLangName(wotdEntry.sourceLang, interfaceLang)}
                   </span>
-                  <span className="text-xs text-slate-500 font-mono">{wotdEntry.ipa}</span>
+                  <span dir="ltr" className="text-xs text-slate-500 font-mono">
+                    {wotdEntry.ipa}
+                  </span>
                   <span className="text-slate-300 dark:text-slate-700">·</span>
                   <span className="text-xs italic text-slate-600 dark:text-slate-400">
-                    {wotdEntry.partOfSpeech}
+                    {getLocalizedPos(wotdEntry.partOfSpeech, interfaceLang)}
                   </span>
                 </div>
 
@@ -733,7 +820,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     audioService.speak(wotdEntry.headword, wotdEntry.sourceLang, wotdEntry.tonePattern);
                   }}
                   className="p-2.5 rounded-full text-slate-400 hover:text-slate-600 bg-slate-100 dark:bg-slate-800 transition-colors cursor-pointer"
-                  title="Pronounce"
+                  title={copy.common.pronounce}
                 >
                   <Volume2 className="w-4 h-4" />
                 </button>
@@ -749,7 +836,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                       ? 'text-[#C47248] bg-[#FAF2ED] dark:bg-[#301F17]'
                       : 'text-slate-400 hover:text-slate-600 bg-slate-100 dark:bg-slate-800'
                   }`}
-                  title={isWordOfTheDaySaved ? 'Saved' : 'Save word'}
+                  title={isWordOfTheDaySaved ? copy.common.saved : copy.common.saveWord}
                 >
                   <Bookmark className={`w-4 h-4 ${isWordOfTheDaySaved ? 'fill-current' : ''}`} />
                 </button>
@@ -757,12 +844,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </div>
 
             <p className="text-sm text-slate-700 dark:text-slate-300 mt-2.5 leading-relaxed">
-              {wotdEntry.definition}
+              {content.wotdNotes.definition}
             </p>
 
             <div className="mt-3.5 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs text-[#345E4C] dark:text-[#7E9E88] font-medium">
-              <span>Explore senses, forms, and language connections</span>
-              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+              <span>{copy.search.exploreSenses}</span>
+              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 rtl:rotate-180 rtl:group-hover:-translate-x-1 transition-transform" />
             </div>
           </div>
         </div>
@@ -773,32 +860,35 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <div className="flex items-center justify-between mb-2.5">
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
               <Compass className="w-3.5 h-3.5 text-[#345E4C] dark:text-[#7E9E88]" />
-              <span>Cultural Vocabulary Collections</span>
+              <span>{copy.search.culturalCollections}</span>
             </h2>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {CURATED_COLLECTIONS.map((col) => (
-              <div
-                key={col.id}
-                onClick={() => onNavigateToDictionary()}
-                className="bg-white dark:bg-[#15231D] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-[#204031] dark:hover:border-[#7E9E88] transition-all cursor-pointer shadow-xs flex flex-col justify-between"
-              >
-                <div>
-                  <div className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                    {col.name}
+            {CURATED_COLLECTIONS.map((col) => {
+              const localizedCol = getLocalizedCollection(col, interfaceLang);
+              return (
+                <div
+                  key={col.id}
+                  onClick={() => onNavigateToDictionary()}
+                  className="bg-white dark:bg-[#15231D] p-4 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-[#204031] dark:hover:border-[#7E9E88] transition-all cursor-pointer shadow-xs flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                      {localizedCol.name}
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                      {localizedCol.description}
+                    </p>
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">
-                    {col.description}
-                  </p>
-                </div>
 
-                <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-[#345E4C] dark:text-[#7E9E88] font-medium">
-                  <span>{col.wordIds.length} Curated Concepts</span>
-                  <ArrowRight className="w-3 h-3" />
+                  <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-[#345E4C] dark:text-[#7E9E88] font-medium">
+                    <span>{formatText(copy.search.curatedConcepts, { count: col.wordIds.length })}</span>
+                    <ArrowRight className="w-3 h-3 rtl:rotate-180" />
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

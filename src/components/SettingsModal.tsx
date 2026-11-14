@@ -1,15 +1,14 @@
 import React from 'react';
 import { LanguageCode } from '../types/dictionary';
-import { LANGUAGES, LANGUAGE_LIST } from '../data/languages';
+import { LANGUAGE_LIST } from '../data/languages';
+import { getUiCopy, getLangName } from '../i18n';
 import {
   X,
   Globe2,
   Moon,
   Sun,
-  Volume2,
   Check,
   RotateCcw,
-  ShieldCheck,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -41,6 +40,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
+  const copy = getUiCopy(interfaceLang);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       <div
@@ -50,12 +51,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between shrink-0 bg-[#F4EFE6] dark:bg-[#162720]">
           <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <span>Settings & Preferences</span>
+            <span>{copy.settings.title}</span>
           </h2>
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-xl text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
+            className="p-1.5 rounded-xl text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors cursor-pointer"
+            title={copy.common.close}
           >
             <X className="w-5 h-5" />
           </button>
@@ -67,10 +69,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-2 flex items-center gap-1.5">
               <Globe2 className="w-4 h-4 text-[#345E4C] dark:text-[#7E9E88]" />
-              <span>Default Interface Language</span>
+              <span>{copy.settings.defaultInterfaceLang}</span>
             </label>
             <p className="text-xs text-slate-500 mb-3">
-              Change the primary language used for navigational labels, instructions, and menus.
+              {copy.settings.interfaceLangDesc}
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -81,7 +83,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     key={lang.code}
                     type="button"
                     onClick={() => onSelectInterfaceLang(lang.code)}
-                    className={`p-3 rounded-xl border text-left flex items-center justify-between transition-all cursor-pointer ${
+                    className={`p-3 rounded-xl border text-start flex items-center justify-between transition-all cursor-pointer ${
                       isSelected
                         ? 'border-[#204031] bg-[#EEF4F0] dark:bg-[#1F372C] dark:border-[#7E9E88]'
                         : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-[#162720] hover:border-slate-300'
@@ -89,7 +91,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   >
                     <div>
                       <div className="font-semibold text-slate-900 dark:text-slate-100">
-                        {lang.name}
+                        {getLangName(lang.code, interfaceLang)}
                       </div>
                       <div
                         className={`text-xs text-slate-500 ${
@@ -111,7 +113,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* Theme Switcher */}
           <div className="pt-4 border-t border-slate-200/60 dark:border-slate-800/60">
             <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-2">
-              Display Theme
+              {copy.settings.displayTheme}
             </label>
             <div className="grid grid-cols-2 gap-2">
               <button
@@ -124,7 +126,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 }`}
               >
                 <Sun className="w-4 h-4 text-amber-500" />
-                <span>Light Forest & Ivory</span>
+                <span>{copy.settings.lightTheme}</span>
               </button>
 
               <button
@@ -137,7 +139,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 }`}
               >
                 <Moon className="w-4 h-4 text-emerald-400" />
-                <span>Dark Forest Night</span>
+                <span>{copy.settings.darkTheme}</span>
               </button>
             </div>
           </div>
@@ -145,22 +147,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* Pronunciation & Phonetics Options */}
           <div className="pt-4 border-t border-slate-200/60 dark:border-slate-800/60 space-y-3">
             <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">
-              Audio & Phonetics
+              {copy.settings.audioAndPhonetics}
             </label>
 
-            <div className="flex items-center justify-between p-3 rounded-xl bg-white dark:bg-[#162720] border border-slate-200 dark:border-slate-800">
+            <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white dark:bg-[#162720] border border-slate-200 dark:border-slate-800">
               <div>
                 <div className="font-semibold text-slate-900 dark:text-slate-100">
-                  Audio Pronunciation
+                  {copy.settings.audioPronunciation}
                 </div>
                 <div className="text-xs text-slate-500">
-                  Play tone contour simulation and native speech synthesis
+                  {copy.settings.audioPronunciationDesc}
                 </div>
               </div>
               <button
                 type="button"
                 onClick={onToggleAudio}
-                className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
+                dir="ltr"
+                className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer shrink-0 ${
                   audioPronunciation ? 'bg-[#204031] dark:bg-[#7E9E88]' : 'bg-slate-300 dark:bg-slate-700'
                 }`}
               >
@@ -172,19 +175,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
             </div>
 
-            <div className="flex items-center justify-between p-3 rounded-xl bg-white dark:bg-[#162720] border border-slate-200 dark:border-slate-800">
+            <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white dark:bg-[#162720] border border-slate-200 dark:border-slate-800">
               <div>
                 <div className="font-semibold text-slate-900 dark:text-slate-100">
-                  IPA Phonetic Transcriptions
+                  {copy.settings.ipaTranscriptions}
                 </div>
                 <div className="text-xs text-slate-500">
-                  Display precise International Phonetic Alphabet symbols
+                  {copy.settings.ipaTranscriptionsDesc}
                 </div>
               </div>
               <button
                 type="button"
                 onClick={onTogglePhonetics}
-                className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
+                dir="ltr"
+                className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer shrink-0 ${
                   showPhonetics ? 'bg-[#204031] dark:bg-[#7E9E88]' : 'bg-slate-300 dark:bg-slate-700'
                 }`}
               >
@@ -205,7 +209,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               className="text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 flex items-center gap-2 cursor-pointer"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span>Re-run First-Launch Welcome Experience</span>
+              <span>{copy.settings.resetOnboarding}</span>
             </button>
           </div>
         </div>

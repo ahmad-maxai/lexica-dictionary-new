@@ -9,6 +9,13 @@ import {
 import { LANGUAGES, LANGUAGE_LIST } from '../data/languages';
 import { dictionaryDb } from '../services/dictionaryDatabase';
 import {
+  getUiCopy,
+  formatText,
+  getLangName,
+  getLocalizedPos,
+  getLocalizedEquivalence,
+} from '../i18n';
+import {
   Search,
   ArrowRightLeft,
   Volume2,
@@ -23,6 +30,7 @@ import {
 import { audioService } from '../services/audioService';
 
 interface DictionaryScreenProps {
+  interfaceLang: LanguageCode;
   dictionaryMode: DictionaryMode;
   onSetDictionaryMode: (mode: DictionaryMode) => void;
   sourceLang: LanguageCode;
@@ -37,6 +45,7 @@ interface DictionaryScreenProps {
 }
 
 export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
+  interfaceLang,
   dictionaryMode,
   onSetDictionaryMode,
   sourceLang,
@@ -65,8 +74,10 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
     setSelectedLetter('all');
   }, [sourceLang, dictionaryMode]);
 
+  const copy = getUiCopy(interfaceLang);
   const sourceMeta = LANGUAGES[sourceLang];
-  const targetMeta = LANGUAGES[targetLang];
+  const sourceName = getLangName(sourceLang, interfaceLang);
+  const targetName = getLangName(targetLang, interfaceLang);
 
   const handleSwapLanguages = () => {
     setIsSwapping(true);
@@ -136,8 +147,6 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
 
   const activeStatus =
     dictionaryMode === 'standard' ? standardResponse?.status : multilingualResponse?.status;
-  const activeMessage =
-    dictionaryMode === 'standard' ? standardResponse?.message : multilingualResponse?.message;
 
   // Cross-language suggestion when current search yields not_found
   const crossLanguageMatch = useMemo(() => {
@@ -158,6 +167,52 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
 
   const partsOfSpeech = ['all', 'noun', 'verb', 'adjective', 'phrase'];
 
+  const getLocalizedStatusCopy = () => {
+    switch (activeStatus) {
+      case 'language_not_installed':
+        return {
+          title: copy.statuses.language_not_installed_title,
+          desc: copy.statuses.language_not_installed_desc,
+        };
+      case 'invalid_pair':
+        return {
+          title: copy.statuses.invalid_pair_dict_title,
+          desc: copy.statuses.invalid_pair_desc,
+        };
+      case 'no_definition':
+        return {
+          title: copy.statuses.no_definition_title,
+          desc: copy.statuses.no_definition_desc,
+        };
+      case 'no_translation':
+        return {
+          title: formatText(copy.statuses.no_translation_title, { target: targetName }),
+          desc: formatText(copy.statuses.no_translation_desc, {
+            source: sourceName,
+            target: targetName,
+          }),
+        };
+      case 'not_found':
+        return {
+          title: formatText(copy.statuses.not_found_dict, { query }),
+          desc: formatText(copy.statuses.not_found_desc, { query }),
+        };
+      case 'error':
+        return {
+          title: copy.statuses.error_title,
+          desc: copy.statuses.error_desc,
+        };
+      case 'browse':
+      default:
+        return {
+          title: formatText(copy.statuses.browse_empty_title, { source: sourceName }),
+          desc: copy.statuses.browse_empty_desc,
+        };
+    }
+  };
+
+  const localizedStatus = getLocalizedStatusCopy();
+
   return (
     <div className="pb-24 sm:pb-16 text-slate-900 dark:text-slate-100 transition-colors">
       {/* Top Mode & Language Control Bar */}
@@ -166,7 +221,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
           {/* Engine Mode Switcher */}
           <div
             role="tablist"
-            aria-label="Dictionary Engine Mode"
+            aria-label={copy.modes.standard}
             className="grid grid-cols-2 p-1 rounded-xl bg-[#EFECE5] dark:bg-[#162720] border border-slate-200/80 dark:border-slate-800"
           >
             <button
@@ -181,7 +236,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
               }`}
             >
               <BookOpen className="w-3.5 h-3.5 shrink-0" />
-              <span>Standard Dictionary</span>
+              <span>{copy.modes.standard}</span>
             </button>
 
             <button
@@ -196,7 +251,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
               }`}
             >
               <Languages className="w-3.5 h-3.5 shrink-0" />
-              <span>Multilingual Dictionary</span>
+              <span>{copy.modes.multilingual}</span>
             </button>
           </div>
 
@@ -204,21 +259,21 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
           {dictionaryMode === 'standard' ? (
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                Dictionary Language
+                {copy.search.dictionaryLanguage}
               </label>
               <div className="relative">
                 <select
                   value={sourceLang}
                   onChange={(e) => onSetLanguages(e.target.value as LanguageCode, targetLang)}
-                  className="w-full h-11 pl-3 pr-8 rounded-xl bg-white dark:bg-[#172B22] border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#204031]"
+                  className="w-full h-11 ps-3 pe-8 rounded-xl bg-white dark:bg-[#172B22] border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#204031]"
                 >
                   {LANGUAGE_LIST.map((lang) => (
                     <option key={lang.code} value={lang.code}>
-                      {lang.name} — {lang.nativeName} ({lang.code.toUpperCase()})
+                      {getLangName(lang.code, interfaceLang)} — {lang.nativeName} ({lang.code.toUpperCase()})
                     </option>
                   ))}
                 </select>
-                <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <ChevronDown className="w-4 h-4 text-slate-400 absolute end-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
             </div>
           ) : (
@@ -226,21 +281,21 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
               {/* Source Language Picker */}
               <div className="flex-1">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                  Source Language
+                  {copy.search.sourceLanguage}
                 </label>
                 <div className="relative">
                   <select
                     value={sourceLang}
                     onChange={(e) => onSetLanguages(e.target.value as LanguageCode, targetLang)}
-                    className="w-full h-11 pl-3 pr-8 rounded-xl bg-white dark:bg-[#172B22] border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#204031]"
+                    className="w-full h-11 ps-3 pe-8 rounded-xl bg-white dark:bg-[#172B22] border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#204031]"
                   >
                     {LANGUAGE_LIST.map((lang) => (
                       <option key={lang.code} value={lang.code}>
-                        {lang.name} ({lang.code.toUpperCase()})
+                        {getLangName(lang.code, interfaceLang)} ({lang.code.toUpperCase()})
                       </option>
                     ))}
                   </select>
-                  <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <ChevronDown className="w-4 h-4 text-slate-400 absolute end-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
               </div>
 
@@ -252,7 +307,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                   className={`w-11 h-11 rounded-xl bg-[#EEF4F0] dark:bg-[#1E3328] text-[#204031] dark:text-[#7E9E88] border border-slate-200 dark:border-slate-700 flex items-center justify-center hover:bg-[#E0EBE4] active:scale-95 transition-all cursor-pointer shadow-xs ${
                     isSwapping ? 'rotate-180 duration-200' : ''
                   }`}
-                  title="Swap source and target languages"
+                  title={copy.search.swapSourceTarget}
                 >
                   <ArrowRightLeft className="w-4 h-4" />
                 </button>
@@ -261,21 +316,21 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
               {/* Target Language Picker */}
               <div className="flex-1">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                  Target Language
+                  {copy.search.targetLanguage}
                 </label>
                 <div className="relative">
                   <select
                     value={targetLang}
                     onChange={(e) => onSetLanguages(sourceLang, e.target.value as LanguageCode)}
-                    className="w-full h-11 pl-3 pr-8 rounded-xl bg-white dark:bg-[#172B22] border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#204031]"
+                    className="w-full h-11 ps-3 pe-8 rounded-xl bg-white dark:bg-[#172B22] border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#204031]"
                   >
                     {LANGUAGE_LIST.map((lang) => (
                       <option key={lang.code} value={lang.code}>
-                        {lang.name} ({lang.code.toUpperCase()})
+                        {getLangName(lang.code, interfaceLang)} ({lang.code.toUpperCase()})
                       </option>
                     ))}
                   </select>
-                  <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <ChevronDown className="w-4 h-4 text-slate-400 absolute end-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
               </div>
             </div>
@@ -287,7 +342,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
       <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-4 space-y-3">
         <form onSubmit={handleSearchSubmit} className="relative">
           <div className="relative flex items-center">
-            <Search className="w-5 h-5 text-slate-400 absolute left-4 pointer-events-none" />
+            <Search className="w-5 h-5 text-slate-400 absolute start-4 pointer-events-none" />
             <input
               ref={searchInputRef}
               type="text"
@@ -295,20 +350,28 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
               onChange={(e) => setQuery(e.target.value)}
               placeholder={
                 dictionaryMode === 'standard'
-                  ? `Search ${sourceMeta.name} headwords, forms & synonyms (e.g., ${sourceMeta.sampleGreeting.word})…`
-                  : `Search in ${sourceMeta.name} or ${targetMeta.name} (e.g., ${sourceMeta.sampleGreeting.word})…`
+                  ? formatText(copy.search.dictStandardPlaceholder, {
+                      lang: sourceName,
+                      sample: sourceMeta.sampleGreeting.word,
+                    })
+                  : formatText(copy.search.dictMultilingualPlaceholder, {
+                      src: sourceName,
+                      tgt: targetName,
+                      sample: sourceMeta.sampleGreeting.word,
+                    })
               }
-              className={`w-full h-13 pl-12 pr-12 rounded-2xl bg-white dark:bg-[#15231D] border border-slate-200 dark:border-slate-800 text-sm sm:text-base font-medium text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-[#204031] dark:focus:border-[#7E9E88] shadow-sm transition-all ${
+              className={`w-full h-13 ps-12 pe-12 rounded-2xl bg-white dark:bg-[#15231D] border border-slate-200 dark:border-slate-800 text-sm sm:text-base font-medium text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-[#204031] dark:focus:border-[#7E9E88] shadow-sm transition-all ${
                 sourceMeta.direction === 'rtl' ? 'font-arabic' : 'font-sans'
               }`}
-              dir={sourceMeta.direction === 'rtl' && !query ? 'ltr' : undefined}
+              dir={!query ? (interfaceLang === 'ar' ? 'rtl' : 'ltr') : sourceMeta.direction}
             />
 
             {query && (
               <button
                 type="button"
                 onClick={handleClearQuery}
-                className="absolute right-3.5 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                className="absolute end-3.5 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                title={copy.common.clearSearch}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -319,8 +382,8 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
         {/* Specialized Diacritic Quick Insertion Bar */}
         {sourceMeta.specialChars && sourceMeta.specialChars.length > 0 && (
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0 mr-1">
-              {sourceMeta.code.toUpperCase()} Diacritics:
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0 me-1">
+              {formatText(copy.search.diacriticsLabel, { code: sourceMeta.code.toUpperCase() })}
             </span>
             {sourceMeta.specialChars.map((char, idx) => (
               <button
@@ -344,28 +407,28 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                 <button
                   key={pos}
                   onClick={() => setSelectedPartOfSpeech(pos)}
-                  className={`text-xs capitalize px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                  className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap cursor-pointer ${
                     isActive
                       ? 'bg-[#1B382B] text-white shadow-xs'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
                   }`}
                 >
-                  {pos === 'all' ? 'All Classes' : pos}
+                  {pos === 'all' ? copy.search.allClasses : getLocalizedPos(pos, interfaceLang)}
                 </button>
               );
             })}
           </div>
 
           <div className="text-xs text-slate-500 shrink-0 tabular-nums">
-            {activeCount} {activeCount === 1 ? 'entry' : 'entries'}
+            {activeCount} {activeCount === 1 ? copy.search.entrySingular : copy.search.entryPlural}
           </div>
         </div>
 
         {/* Alphabet Browse Bar */}
         {!query.trim() && availableLetters.length > 1 && (
           <div className="flex items-center gap-1 overflow-x-auto pb-1.5 scrollbar-none text-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0 mr-1">
-              Browse A–Z:
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0 me-1">
+              {copy.search.browseAZ}
             </span>
             <button
               type="button"
@@ -376,7 +439,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                   : 'bg-white dark:bg-[#162720] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:border-slate-300'
               }`}
             >
-              All
+              {copy.common.all}
             </button>
             {availableLetters.map((letter) => (
               <button
@@ -416,21 +479,21 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#EEF4F0] dark:bg-[#1F372C] text-[#204031] dark:text-[#7E9E88]">
                           {entryMeta.code.toUpperCase()}
                         </span>
-                        <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                        <span dir="ltr" className="text-xs text-slate-500 dark:text-slate-400 font-mono">
                           {entry.ipa}
                         </span>
                         <span className="text-slate-300 dark:text-slate-700">·</span>
                         <span className="text-xs italic text-slate-600 dark:text-slate-400">
-                          {entry.partOfSpeech}
+                          {getLocalizedPos(entry.partOfSpeech, interfaceLang)}
                         </span>
                         {matchedField === 'morphology' && (
                           <span className="text-[11px] text-[#C47248] dark:text-[#E28D70] font-medium">
-                            · form: {matchedTerm}
+                            {copy.search.formLabel} {matchedTerm}
                           </span>
                         )}
                         {matchedField === 'synonym' && (
                           <span className="text-[11px] text-[#345E4C] dark:text-[#7E9E88] font-medium">
-                            · synonym: {matchedTerm}
+                            {copy.search.synonymShortLabel} {matchedTerm}
                           </span>
                         )}
                       </div>
@@ -461,7 +524,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                             className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed"
                           >
                             {senses.length > 1 && (
-                              <span className="font-semibold text-[#345E4C] dark:text-[#7E9E88] mr-1.5">
+                              <span className="font-semibold text-[#345E4C] dark:text-[#7E9E88] me-1.5">
                                 {sense.senseNumber}.
                               </span>
                             )}
@@ -479,7 +542,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                           audioService.speak(entry.headword, entry.sourceLang, entry.tonePattern);
                         }}
                         className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                        title="Listen"
+                        title={copy.common.listen}
                       >
                         <Volume2 className="w-4 h-4" />
                       </button>
@@ -495,7 +558,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                             ? 'text-[#C47248] bg-[#FAF2ED] dark:bg-[#301F17]'
                             : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                         }`}
-                        title={isSaved ? 'Saved' : 'Save word'}
+                        title={isSaved ? copy.common.saved : copy.common.saveWord}
                       >
                         <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-current' : ''}`} />
                       </button>
@@ -507,7 +570,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-500 dark:text-slate-400">
                       {morphologicalForms.length > 0 && (
                         <span>
-                          Forms:{' '}
+                          {copy.search.formsPrefix}{' '}
                           <span className="text-slate-800 dark:text-slate-200 font-medium">
                             {morphologicalForms
                               .slice(0, 2)
@@ -518,7 +581,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                       )}
                       {entry.synonyms.length > 0 && (
                         <span>
-                          Synonyms:{' '}
+                          {copy.search.synonymsPrefix}{' '}
                           <span className="text-slate-800 dark:text-slate-200 font-medium">
                             {entry.synonyms.slice(0, 3).join(', ')}
                           </span>
@@ -526,9 +589,9 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                       )}
                     </div>
 
-                    <span className="text-[11px] text-[#345E4C] dark:text-[#7E9E88] font-medium flex items-center gap-1 ml-auto">
-                      <span>View entry</span>
-                      <ArrowRight className="w-3 h-3" />
+                    <span className="text-[11px] text-[#345E4C] dark:text-[#7E9E88] font-medium flex items-center gap-1 ms-auto">
+                      <span>{copy.common.viewEntry}</span>
+                      <ArrowRight className="w-3 h-3 rtl:rotate-180" />
                     </span>
                   </div>
                 </div>
@@ -544,7 +607,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
               const entrySourceMeta = LANGUAGES[entry.sourceLang];
               const primaryMatch = senseMatches[0];
               const rel = primaryMatch?.relationship;
-              const relTargetMeta = rel ? LANGUAGES[rel.targetLang] : targetMeta;
+              const relTargetMeta = rel ? LANGUAGES[rel.targetLang] : LANGUAGES[targetLang];
 
               return (
                 <div
@@ -558,16 +621,16 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#EEF4F0] dark:bg-[#1F372C] text-[#204031] dark:text-[#7E9E88]">
                           {entrySourceMeta.code.toUpperCase()}
                         </span>
-                        <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                        <span dir="ltr" className="text-xs text-slate-500 dark:text-slate-400 font-mono">
                           {entry.ipa}
                         </span>
                         <span className="text-slate-300 dark:text-slate-700">·</span>
                         <span className="text-xs italic text-slate-600 dark:text-slate-400">
-                          {entry.partOfSpeech}
+                          {getLocalizedPos(entry.partOfSpeech, interfaceLang)}
                         </span>
                         {isReverseLookup && (
                           <span className="text-[11px] font-medium text-[#C47248] dark:text-[#E28D70]">
-                            · reverse match
+                            {copy.search.reverseMatch}
                           </span>
                         )}
                       </div>
@@ -604,7 +667,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                           audioService.speak(entry.headword, entry.sourceLang, entry.tonePattern);
                         }}
                         className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                        title="Listen"
+                        title={copy.common.listen}
                       >
                         <Volume2 className="w-4 h-4" />
                       </button>
@@ -620,7 +683,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                             ? 'text-[#C47248] bg-[#FAF2ED] dark:bg-[#301F17]'
                             : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
                         }`}
-                        title={isSaved ? 'Saved' : 'Save word'}
+                        title={isSaved ? copy.common.saved : copy.common.saveWord}
                       >
                         <Bookmark className={`w-4 h-4 ${isSaved ? 'fill-current' : ''}`} />
                       </button>
@@ -632,7 +695,8 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                     <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
                       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
                         <span className="text-slate-400">
-                          {relTargetMeta.name} ({rel.equivalenceType}):
+                          {getLangName(relTargetMeta.code, interfaceLang)} (
+                          {getLocalizedEquivalence(rel.equivalenceType, interfaceLang)}):
                         </span>
                         <span
                           className={`font-semibold text-slate-900 dark:text-slate-100 ${
@@ -642,7 +706,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                         >
                           {rel.targetHeadword}
                           {rel.transliteration && (
-                            <span className="font-normal font-mono text-slate-500 ml-1">
+                            <span dir="ltr" className="font-normal font-mono text-slate-500 ms-1">
                               [{rel.transliteration}]
                             </span>
                           )}
@@ -655,8 +719,8 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                       </div>
 
                       <span className="text-[11px] text-[#345E4C] dark:text-[#7E9E88] font-medium flex items-center gap-1 shrink-0 group-hover:translate-x-0.5 transition-transform">
-                        <span>View entry</span>
-                        <ArrowRight className="w-3 h-3" />
+                        <span>{copy.common.viewEntry}</span>
+                        <ArrowRight className="w-3 h-3 rtl:rotate-180" />
                       </span>
                     </div>
                   )}
@@ -676,22 +740,11 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
 
               <div>
                 <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                  {activeStatus === 'language_not_installed' && 'Language pack not installed'}
-                  {activeStatus === 'invalid_pair' && 'Source and target languages are identical'}
-                  {activeStatus === 'no_definition' && 'No definition available'}
-                  {activeStatus === 'no_translation' &&
-                    `No translation available in ${targetMeta.name}`}
-                  {activeStatus === 'not_found' && `Word not found for “${query}”`}
-                  {(activeStatus === 'browse' || !activeStatus) &&
-                    `No entries match the current filter in ${sourceMeta.name}`}
-                  {activeStatus === 'error' && 'Search failure'}
+                  {localizedStatus.title}
                 </h4>
 
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1 leading-relaxed">
-                  {activeMessage ||
-                    (query.trim()
-                      ? `No matching entry found. Check spelling or try searching without diacritics.`
-                      : `Clear the class or A–Z filter to see all entries.`)}
+                  {localizedStatus.desc}
                 </p>
               </div>
 
@@ -701,7 +754,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                   onClick={onNavigateToLibrary}
                   className="px-4 py-2 rounded-xl bg-[#1B382B] text-white text-xs font-semibold cursor-pointer hover:bg-[#142A20] transition-all"
                 >
-                  Open Language Library
+                  {copy.statuses.openLanguageLibrary}
                 </button>
               )}
 
@@ -713,18 +766,21 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                   onClick={() => onSetDictionaryMode('standard')}
                   className="px-4 py-2 rounded-xl bg-[#1B382B] text-white text-xs font-semibold cursor-pointer hover:bg-[#142A20] transition-all"
                 >
-                  Switch to {sourceMeta.name} Standard Dictionary
+                  {formatText(copy.statuses.switchToStandardDict, { lang: sourceName })}
                 </button>
               )}
 
               {crossLanguageMatch && (
-                <div className="mt-3 p-3.5 rounded-xl bg-[#EEF4F0] dark:bg-[#182C22] border border-[#204031]/20 max-w-md mx-auto text-left flex items-center justify-between gap-3">
+                <div className="mt-3 p-3.5 rounded-xl bg-[#EEF4F0] dark:bg-[#182C22] border border-[#204031]/20 max-w-md mx-auto text-start flex items-center justify-between gap-3">
                   <div>
                     <span className="text-[10px] font-bold text-[#204031] dark:text-[#7E9E88] uppercase tracking-wider block">
-                      Found in another language
+                      {copy.statuses.foundInAnotherLang}
                     </span>
                     <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                      “{crossLanguageMatch.entry.headword}” exists in {crossLanguageMatch.lang.name}
+                      {formatText(copy.statuses.existsInLang, {
+                        word: crossLanguageMatch.entry.headword,
+                        lang: getLangName(crossLanguageMatch.lang.code, interfaceLang),
+                      })}
                     </span>
                   </div>
                   <button
@@ -734,7 +790,9 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                     }}
                     className="px-3 py-1.5 rounded-lg bg-[#204031] text-white text-xs font-semibold shrink-0 cursor-pointer hover:bg-[#152B21] transition-all"
                   >
-                    Switch to {crossLanguageMatch.lang.name}
+                    {formatText(copy.statuses.switchToLang, {
+                      lang: getLangName(crossLanguageMatch.lang.code, interfaceLang),
+                    })}
                   </button>
                 </div>
               )}

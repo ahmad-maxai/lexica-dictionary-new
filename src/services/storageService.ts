@@ -33,7 +33,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   showPhonetics: true,
   installedPacks: DEFAULT_INSTALLED_PACKS,
   savedWordIds: ['word-lafiya-ha', 'word-ogbon-yo', 'word-peace-en'],
-  recentSearches: ['Peace', 'Lafiya', 'Wisdom', 'صَبْر'],
+  recentSearches: [],
   quizStreak: 3,
   totalQuizzesTaken: 8,
   totalCardsReviewed: 24,
@@ -61,9 +61,20 @@ export const StorageService = {
           dictionaryDb.setPackInstalled(code, isInstalled);
         });
 
+        // Filter out legacy pre-seeded mock searches if present
+        const LEGACY_MOCKS = ['Peace', 'Lafiya', 'Wisdom', 'صَبْر'];
+        let activeSearches: string[] = Array.isArray(parsed.recentSearches) ? parsed.recentSearches : [];
+        if (
+          activeSearches.length === LEGACY_MOCKS.length &&
+          activeSearches.every((item, idx) => item === LEGACY_MOCKS[idx])
+        ) {
+          activeSearches = [];
+        }
+
         return {
           ...DEFAULT_PREFERENCES,
           ...parsed,
+          recentSearches: activeSearches,
           dictionaryMode: parsed.dictionaryMode === 'multilingual' ? 'multilingual' : 'standard',
           installedPacks: mergedPacks,
         };
