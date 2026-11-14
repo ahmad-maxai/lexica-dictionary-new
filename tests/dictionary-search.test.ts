@@ -367,6 +367,25 @@ runTest('3.2 Honest Offline Dataset Integrity & Zero Fake Sizes', () => {
   console.log('----------------------------\n');
 });
 
+runTest('3.3 Expanded Real Vocabulary Retrieval across All 7 Languages', () => {
+  const probes = [
+    { lang: 'en', query: 'Benevolence', expected: 'Benevolence' },
+    { lang: 'ha', query: 'Zumunci', expected: 'Zumunci' },
+    { lang: 'yo', query: 'Ọmọlúwàbí', expected: 'Ọmọlúwàbí' },
+    { lang: 'ff', query: 'Pulaaku', expected: 'Pulaaku' },
+    { lang: 'ar', query: 'عَدْل', expected: 'عَدْل' },
+    { lang: 'fr', query: 'Solidarité', expected: 'Solidarité' },
+    { lang: 'zh', query: '和谐', expected: '和谐' },
+  ];
+
+  for (const p of probes) {
+    const res = dictionaryDb.searchStandard(p.query, p.lang as any);
+    assert.strictEqual(res.status, 'ok', `Expanded entry ${p.query} in ${p.lang} must be found`);
+    assert(res.results.length > 0);
+    assert.strictEqual(res.results[0].entry.headword, p.expected);
+  }
+});
+
 console.log('\n==============================================================');
 console.log(`RESULTS: ${passedTests} / ${totalTests} TESTS PASSED`);
 console.log('==============================================================\n');
