@@ -9,7 +9,6 @@ import {
 } from '../types/dictionary';
 import { VERIFIED_SEED_ENTRIES } from '../data/seedDictionary';
 import { DICTIONARY_ENTRIES as INITIAL_ENTRIES } from '../data/dictionaryData';
-import { EXPANDED_DICTIONARY_ENTRIES } from '../data/expandedDictionary';
 import { LEXICON_ENRICHMENTS, TRANSLATION_ANNOTATIONS } from '../data/lexiconEnrichment';
 import {
   StandardDictionarySearch,
@@ -20,10 +19,10 @@ import {
   MultilingualSearchOptions,
 } from './multilingualDictionarySearch';
 
-const DB_STORAGE_KEY = 'lexica_offline_database_v5';
+const DB_STORAGE_KEY = 'lexica_offline_database_v4';
 const DB_VERSION_KEY = 'lexica_offline_database_version';
-const DB_PACKS_KEY = 'lexica_installed_pack_flags_v5';
-const CURRENT_DB_VERSION = '2026.5.0';
+const DB_PACKS_KEY = 'lexica_installed_pack_flags_v4';
+const CURRENT_DB_VERSION = '2026.4.0';
 
 const ALL_LANGUAGES: LanguageCode[] = ['en', 'ha', 'yo', 'ff', 'ar', 'fr', 'zh'];
 
@@ -145,17 +144,6 @@ class LocalDictionaryDatabase {
 
     for (const entry of VERIFIED_SEED_ENTRIES) {
       rawMap.set(entry.id, entry);
-    }
-
-    for (const entry of EXPANDED_DICTIONARY_ENTRIES) {
-      const alreadyHas = Array.from(rawMap.values()).some(
-        (e) =>
-          e.sourceLang === entry.sourceLang &&
-          e.headword.trim().toLowerCase() === entry.headword.trim().toLowerCase()
-      );
-      if (!rawMap.has(entry.id) && !alreadyHas) {
-        rawMap.set(entry.id, entry);
-      }
     }
 
     for (const entry of INITIAL_ENTRIES) {
