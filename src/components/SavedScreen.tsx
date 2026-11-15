@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { WordEntry, LanguageCode, Collection } from '../types/dictionary';
 import { LANGUAGES } from '../data/languages';
 import { dictionaryDb } from '../services/dictionaryDatabase';
@@ -50,22 +50,11 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
   const [isCreatingCollection, setIsCreatingCollection] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState('');
   const [newCollectionDesc, setNewCollectionDesc] = useState('');
-  const [savedEntries, setSavedEntries] = useState<WordEntry[]>([]);
 
   const copy = getUiCopy(interfaceLang);
 
-  useEffect(() => {
-    let active = true;
-    dictionaryDb
-      .getEntriesByIds(savedWordIds)
-      .then((entries) => {
-        if (active) setSavedEntries(entries);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [savedWordIds]);
+  // Get full word objects for saved IDs
+  const savedEntries = dictionaryDb.getAllEntries().filter((entry) => savedWordIds.includes(entry.id));
 
   const filteredSavedEntries = savedEntries.filter((entry) => {
     if (selectedLanguageFilter === 'all') return true;

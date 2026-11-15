@@ -144,47 +144,7 @@ export interface WordEntry {
   sourceAttribution?: string | null;
   license?: string | null;
   datasetVersion?: string | null;
-  packId?: string;
-  sourceUrl?: string | null;
   tags: string[];
-}
-
-export type PackTier = 'core_starter' | 'full_pack';
-
-export type PackInstallState =
-  | 'installed'
-  | 'core_only'
-  | 'downloading'
-  | 'verifying'
-  | 'incomplete'
-  | 'not_installed';
-
-export interface PackManifestItem {
-  packId: string;
-  langCode: LanguageCode;
-  tier: PackTier;
-  version: string;
-  schemaVersion: number;
-  dbFileName: string;
-  compressedFileName: string;
-  downloadUrl: string;
-  fallbackDownloadUrl?: string;
-  sizeBytes: number;
-  compressedSizeBytes: number;
-  sha256Checksum: string;
-  entryCount: number;
-  senseCount: number;
-  translationCount: number;
-  sources: Array<{ name: string; license: string; url?: string }>;
-}
-
-export interface PackDownloadProgress {
-  langCode: LanguageCode;
-  state: PackInstallState;
-  receivedBytes: number;
-  totalBytes: number;
-  percent: number;
-  errorMessage?: string;
 }
 
 export interface StandardSearchResult {
@@ -291,13 +251,6 @@ export interface InstalledPack {
   sizeMb: number;
   downloadDate?: number;
   lastUpdated?: number;
-  tier?: PackTier;
-  installState?: PackInstallState;
-  sizeBytes?: number;
-  compressedSizeBytes?: number;
-  sha256Checksum?: string;
-  entryCount?: number;
-  availableUpdateVersion?: string | null;
 }
 
 export interface UserPreferences {

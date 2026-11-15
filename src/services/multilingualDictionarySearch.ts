@@ -249,10 +249,10 @@ export class MultilingualDictionarySearch {
       const targetEntries = context.entries.filter((e) => e.sourceLang === targetLang);
 
       const missingPacks: LanguageCode[] = [];
-      if (!context.isLanguageInstalled(sourceLang)) {
+      if (!context.isLanguageInstalled(sourceLang) || sourceEntries.length === 0) {
         missingPacks.push(sourceLang);
       }
-      if (!context.isLanguageInstalled(targetLang)) {
+      if (!context.isLanguageInstalled(targetLang) || targetEntries.length === 0) {
         missingPacks.push(targetLang);
       }
 
@@ -427,25 +427,18 @@ export class MultilingualDictionarySearch {
 
       filtered.sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
-        const aExact = a.entry.headword === rawQuery ? 1 : 0;
-        const bExact = b.entry.headword === rawQuery ? 1 : 0;
-        if (bExact !== aExact) return bExact - aExact;
         if (a.entry.sourceLang === sourceLang && b.entry.sourceLang !== sourceLang) return -1;
         if (b.entry.sourceLang === sourceLang && a.entry.sourceLang !== sourceLang) return 1;
-        if (b.senseMatches.length !== a.senseMatches.length) {
-          return b.senseMatches.length - a.senseMatches.length;
-        }
         return a.entry.headword.localeCompare(b.entry.headword);
       });
 
-      // Deduplicate only identical (sourceLang, headword, partOfSpeech) entries while preserving distinct parts of speech
+      // Deduplicate by normalized headword while preserving reverse-lookup fallback
       const deduped: MultilingualSearchResult[] = [];
-      const seenEntries = new Set<string>();
+      const seenHeadwords = new Set<string>();
       for (const item of filtered) {
-        const normH = item.entry.headword.toLowerCase().replace(/[\s\-\/]/g, '');
-        const key = `${item.entry.sourceLang}:${normH}:${item.entry.partOfSpeech.toLowerCase()}`;
-        if (seenEntries.has(key)) continue;
-        seenEntries.add(key);
+        const key = item.entry.headword.toLowerCase().replace(/[\s\-\/]/g, '');
+        if (seenHeadwords.has(key)) continue;
+        seenHeadwords.add(key);
         deduped.push(item);
       }
 

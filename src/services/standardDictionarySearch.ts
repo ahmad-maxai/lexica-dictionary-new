@@ -219,13 +219,13 @@ export class StandardDictionarySearch {
 
       const languageEntries = entries.filter((e) => e.sourceLang === language);
 
-      if (!isLanguageInstalled(language)) {
+      if (!isLanguageInstalled(language) || languageEntries.length === 0) {
         return {
           status: 'language_not_installed',
           language,
           query: rawQuery,
           results: [],
-          message: `The ${language.toUpperCase()} dictionary dataset is not installed.`,
+          message: `The ${language.toUpperCase()} standard dictionary dataset is not installed or contains no records.`,
         };
       }
 
@@ -297,15 +297,6 @@ export class StandardDictionarySearch {
       const ranked = (hasStrong ? matches.filter((m) => m.matchedField !== 'definition') : matches).sort(
         (a, b) => {
           if (b.score !== a.score) return b.score - a.score;
-          // Prefer exact character+case match over case-folded match
-          const aExactCase = a.entry.headword === rawQuery ? 1 : 0;
-          const bExactCase = b.entry.headword === rawQuery ? 1 : 0;
-          if (bExactCase !== aExactCase) return bExactCase - aExactCase;
-          // Prefer entries with richer cross-language links & senses when tied
-          const aTrans = Object.keys(a.entry.translations || {}).length;
-          const bTrans = Object.keys(b.entry.translations || {}).length;
-          if (bTrans !== aTrans) return bTrans - aTrans;
-          if (b.senses.length !== a.senses.length) return b.senses.length - a.senses.length;
           return a.entry.headword.localeCompare(b.entry.headword);
         }
       );

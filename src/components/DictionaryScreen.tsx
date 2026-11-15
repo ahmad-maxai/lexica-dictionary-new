@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   DictionaryMode,
   LanguageCode,
@@ -8,7 +8,6 @@ import {
 } from '../types/dictionary';
 import { LANGUAGES, LANGUAGE_LIST } from '../data/languages';
 import { dictionaryDb } from '../services/dictionaryDatabase';
-import { packManager } from '../services/packManager';
 import {
   getUiCopy,
   formatText,
@@ -63,14 +62,6 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
   const [selectedPartOfSpeech, setSelectedPartOfSpeech] = useState<string>('all');
   const [selectedLetter, setSelectedLetter] = useState<string>('all');
   const [isSwapping, setIsSwapping] = useState(false);
-  const [availableLetters, setAvailableLetters] = useState<string[]>([]);
-  const [standardResponse, setStandardResponse] = useState<StandardSearchResponse | null>(null);
-  const [multilingualResponse, setMultilingualResponse] = useState<MultilingualSearchResponse | null>(null);
-  const [crossLanguageMatch, setCrossLanguageMatch] = useState<{
-    entry: WordEntry;
-    lang: (typeof LANGUAGES)[LanguageCode];
-  } | null>(null);
-  const [packRevision, setPackRevision] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -82,14 +73,6 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
   useEffect(() => {
     setSelectedLetter('all');
   }, [sourceLang, dictionaryMode]);
-
-  useEffect(() => {
-    return packManager.subscribe((progress) => {
-      if (progress.state === 'installed' || progress.state === 'core_only' || progress.state === 'not_installed') {
-        setPackRevision((r) => r + 1);
-      }
-    });
-  }, []);
 
   const copy = getUiCopy(interfaceLang);
   const sourceMeta = LANGUAGES[sourceLang];
@@ -126,76 +109,36 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
     }
   };
 
-  // Letters available in the current source language SQLite dataset
-  useEffect(() => {
-    let cancelled = false;
-    dictionaryDb
-      .getAvailableLetters(sourceLang)
-      .then((letters) => {
-        if (!cancelled) setAvailableLetters(letters);
-      })
-      .catch(() => {
-        if (!cancelled) setAvailableLetters([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [sourceLang, packRevision]);
-
-  // Execute Engine 1 (Standard) OR Engine 2 (Multilingual) via SQLite + FTS5
-  useEffect(() => {
-    let cancelled = false;
-    const delayMs = query.trim() ? 60 : 0;
-
-    const timer = setTimeout(async () => {
-      try {
-        if (dictionaryMode === 'standard') {
-          const res = await dictionaryDb.searchStandard(query, sourceLang, {
-            partOfSpeech: selectedPartOfSpeech,
-            letter: selectedLetter,
-          });
-          if (cancelled) return;
-          setStandardResponse(res);
-          setMultilingualResponse(null);
-
-          if (query.trim() && res.results.length === 0 && res.status === 'not_found') {
-            const hint = await dictionaryDb.findCrossLanguageHint(query, sourceLang);
-            if (!cancelled) {
-              setCrossLanguageMatch(hint ? { entry: hint.entry, lang: LANGUAGES[hint.lang] } : null);
-            }
-          } else {
-            setCrossLanguageMatch(null);
-          }
-        } else {
-          const res = await dictionaryDb.searchMultilingual(query, sourceLang, targetLang, {
-            partOfSpeech: selectedPartOfSpeech,
-            letter: selectedLetter,
-          });
-          if (cancelled) return;
-          setMultilingualResponse(res);
-          setStandardResponse(null);
-
-          if (query.trim() && res.results.length === 0 && res.status === 'not_found') {
-            const hint = await dictionaryDb.findCrossLanguageHint(query, sourceLang);
-            if (!cancelled) {
-              setCrossLanguageMatch(hint ? { entry: hint.entry, lang: LANGUAGES[hint.lang] } : null);
-            }
-          } else {
-            setCrossLanguageMatch(null);
-          }
-        }
-      } catch {
-        if (!cancelled) {
-          setCrossLanguageMatch(null);
-        }
+  // Letters available in the current source language dataset
+  const availableLetters = useMemo(() => {
+    const entries = dictionaryDb.getEntriesByLanguage(sourceLang);
+    const letters = new Set<string>();
+    for (const e of entries) {
+      const cleanH = e.headword.replace(/^['"‘“\s]+/, '');
+      if (cleanH.length > 0) {
+        const first = cleanH.charAt(0).toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        if (first && first.trim()) letters.add(first);
       }
-    }, delayMs);
+    }
+    return Array.from(letters).sort((a, b) => a.localeCompare(b));
+  }, [sourceLang]);
 
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [dictionaryMode, query, sourceLang, targetLang, selectedPartOfSpeech, selectedLetter, packRevision]);
+  // Execute Engine 1 (Standard) OR Engine 2 (Multilingual)
+  const standardResponse: StandardSearchResponse | null = useMemo(() => {
+    if (dictionaryMode !== 'standard') return null;
+    return dictionaryDb.searchStandard(query, sourceLang, {
+      partOfSpeech: selectedPartOfSpeech,
+      letter: selectedLetter,
+    });
+  }, [dictionaryMode, query, sourceLang, selectedPartOfSpeech, selectedLetter]);
+
+  const multilingualResponse: MultilingualSearchResponse | null = useMemo(() => {
+    if (dictionaryMode !== 'multilingual') return null;
+    return dictionaryDb.searchMultilingual(query, sourceLang, targetLang, {
+      partOfSpeech: selectedPartOfSpeech,
+      letter: selectedLetter,
+    });
+  }, [dictionaryMode, query, sourceLang, targetLang, selectedPartOfSpeech, selectedLetter]);
 
   const activeCount =
     dictionaryMode === 'standard'
@@ -204,6 +147,23 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
 
   const activeStatus =
     dictionaryMode === 'standard' ? standardResponse?.status : multilingualResponse?.status;
+
+  // Cross-language suggestion when current search yields not_found
+  const crossLanguageMatch = useMemo(() => {
+    if (!query.trim() || activeCount > 0 || activeStatus !== 'not_found') return null;
+    const all = dictionaryDb.getAllEntries();
+    const cleanQ = query.trim().toLowerCase();
+    const otherEntry = all.find(
+      (e) =>
+        e.sourceLang !== sourceLang &&
+        (e.headword.toLowerCase() === cleanQ || e.headword.toLowerCase().startsWith(cleanQ))
+    );
+    if (!otherEntry) return null;
+    return {
+      entry: otherEntry,
+      lang: LANGUAGES[otherEntry.sourceLang],
+    };
+  }, [query, activeCount, activeStatus, sourceLang]);
 
   const partsOfSpeech = ['all', 'noun', 'verb', 'adjective', 'phrase'];
 

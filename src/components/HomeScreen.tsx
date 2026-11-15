@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   DictionaryMode,
   LanguageCode,
@@ -7,11 +7,7 @@ import {
   MultilingualSearchResponse,
 } from '../types/dictionary';
 import { LANGUAGES, LANGUAGE_LIST } from '../data/languages';
-import {
-  WORD_OF_THE_DAY_ID,
-  WORD_OF_THE_DAY_FALLBACK,
-  CURATED_COLLECTIONS,
-} from '../data/curatedMetadata';
+import { WORD_OF_THE_DAY, CURATED_COLLECTIONS } from '../data/dictionaryData';
 import { dictionaryDb } from '../services/dictionaryDatabase';
 import { audioService } from '../services/audioService';
 import {
@@ -73,13 +69,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSwapping, setIsSwapping] = useState(false);
-  const [standardResponse, setStandardResponse] = useState<StandardSearchResponse | null>(null);
-  const [multilingualResponse, setMultilingualResponse] = useState<MultilingualSearchResponse | null>(null);
-  const [crossLanguageMatch, setCrossLanguageMatch] = useState<{
-    entry: WordEntry;
-    lang: (typeof LANGUAGES)[LanguageCode];
-  } | null>(null);
-  const [wotdEntry, setWotdEntry] = useState<WordEntry>(WORD_OF_THE_DAY_FALLBACK);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const handleSelectSearchResult = (entry: WordEntry) => {
@@ -118,75 +107,42 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   };
 
-  // Load Word of the Day from SQLite on mount
-  useEffect(() => {
-    let active = true;
-    dictionaryDb
-      .getEntryById(WORD_OF_THE_DAY_ID)
-      .then((entry) => {
-        if (active && entry) setWotdEntry(entry);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, []);
+  // Engine 1: Standard Monolingual Search
+  const standardResponse: StandardSearchResponse | null = useMemo(() => {
+    if (dictionaryMode !== 'standard' || !searchQuery.trim()) return null;
+    return dictionaryDb.searchStandard(searchQuery.trim(), sourceLang);
+  }, [dictionaryMode, searchQuery, sourceLang]);
 
-  // Execute Engine 1 (Standard) OR Engine 2 (Multilingual) via SQLite + FTS5
-  useEffect(() => {
-    const cleanQ = searchQuery.trim();
-    if (!cleanQ) {
-      setStandardResponse(null);
-      setMultilingualResponse(null);
-      setCrossLanguageMatch(null);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      try {
-        if (dictionaryMode === 'standard') {
-          const res = await dictionaryDb.searchStandard(cleanQ, sourceLang);
-          if (cancelled) return;
-          setStandardResponse(res);
-          setMultilingualResponse(null);
-          if (res.status === 'not_found' && res.results.length === 0) {
-            const hint = await dictionaryDb.findCrossLanguageHint(cleanQ, sourceLang);
-            if (!cancelled) {
-              setCrossLanguageMatch(hint ? { entry: hint.entry, lang: LANGUAGES[hint.lang] } : null);
-            }
-          } else {
-            setCrossLanguageMatch(null);
-          }
-        } else {
-          const res = await dictionaryDb.searchMultilingual(cleanQ, sourceLang, targetLang);
-          if (cancelled) return;
-          setMultilingualResponse(res);
-          setStandardResponse(null);
-          if (res.status === 'not_found' && res.results.length === 0) {
-            const hint = await dictionaryDb.findCrossLanguageHint(cleanQ, sourceLang);
-            if (!cancelled) {
-              setCrossLanguageMatch(hint ? { entry: hint.entry, lang: LANGUAGES[hint.lang] } : null);
-            }
-          } else {
-            setCrossLanguageMatch(null);
-          }
-        }
-      } catch (err) {
-        console.warn('Home search error:', err);
-      }
-    }, 60);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
+  // Engine 2: Multilingual Search
+  const multilingualResponse: MultilingualSearchResponse | null = useMemo(() => {
+    if (dictionaryMode !== 'multilingual' || !searchQuery.trim()) return null;
+    return dictionaryDb.searchMultilingual(searchQuery.trim(), sourceLang, targetLang);
   }, [dictionaryMode, searchQuery, sourceLang, targetLang]);
 
   const activeResultCount =
     dictionaryMode === 'standard'
       ? standardResponse?.results.length || 0
       : multilingualResponse?.results.length || 0;
+
+  // Cross-language detection when current search returns no results
+  const crossLanguageMatch = useMemo(() => {
+    if (!searchQuery.trim() || activeResultCount > 0) return null;
+    const status = dictionaryMode === 'standard' ? standardResponse?.status : multilingualResponse?.status;
+    if (status !== 'not_found') return null;
+
+    const all = dictionaryDb.getAllEntries();
+    const cleanQ = searchQuery.trim().toLowerCase();
+    const otherEntry = all.find(
+      (e) =>
+        e.sourceLang !== sourceLang &&
+        (e.headword.toLowerCase() === cleanQ || e.headword.toLowerCase().startsWith(cleanQ))
+    );
+    if (!otherEntry) return null;
+    return {
+      entry: otherEntry,
+      lang: LANGUAGES[otherEntry.sourceLang],
+    };
+  }, [searchQuery, activeResultCount, dictionaryMode, standardResponse, multilingualResponse, sourceLang]);
 
   const languageShortcuts: Array<{ source: LanguageCode; target: LanguageCode }> = [
     { source: 'ha', target: 'en' },
@@ -197,6 +153,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     { source: 'zh', target: 'en' },
     { source: 'ff', target: 'en' },
   ];
+
+  const wotdEntry = useMemo(() => {
+    return dictionaryDb.getEntryById(WORD_OF_THE_DAY?.id) || WORD_OF_THE_DAY;
+  }, []);
 
   const isWordOfTheDaySaved = wotdEntry ? savedWordIds.includes(wotdEntry.id) : false;
 

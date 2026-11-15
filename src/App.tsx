@@ -40,25 +40,6 @@ export default function App() {
     document.documentElement.dir = preferences.interfaceLang === 'ar' ? 'rtl' : 'ltr';
   }, [preferences.interfaceLang, preferences.hasCompletedOnboarding]);
 
-  // Initialize SQLite database & synchronize real pack metadata on mount
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        await dictionaryDb.initialize();
-        const syncedPacks = await StorageService.syncPacksFromSqlite();
-        if (active) {
-          setPreferences((prev) => ({ ...prev, installedPacks: syncedPacks }));
-        }
-      } catch (err) {
-        console.warn('SQLite initialization error:', err);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
-
   // Handle Onboarding Completion
   const handleCompleteOnboarding = (chosenLang: LanguageCode) => {
     const updated = StorageService.savePreferences({
@@ -131,15 +112,9 @@ export default function App() {
     setIsSettingsOpen(false);
   };
 
-  const handleTogglePack = async (code: LanguageCode) => {
-    await StorageService.togglePackInstalled(code);
-    const syncedPacks = await StorageService.syncPacksFromSqlite();
-    setPreferences((prev) => ({ ...prev, installedPacks: syncedPacks }));
-  };
-
-  const handleSyncPacks = async () => {
-    const syncedPacks = await StorageService.syncPacksFromSqlite();
-    setPreferences((prev) => ({ ...prev, installedPacks: syncedPacks }));
+  const handleTogglePack = (code: LanguageCode) => {
+    StorageService.togglePackInstalled(code);
+    setPreferences(StorageService.getPreferences());
   };
 
   const handleSaveCollection = (collection: Collection) => {
@@ -256,7 +231,6 @@ export default function App() {
             installedPacks={preferences.installedPacks}
             onTogglePack={handleTogglePack}
             onSetLanguages={handleSetLanguages}
-            onPacksUpdated={handleSyncPacks}
           />
         )}
       </main>
@@ -271,8 +245,8 @@ export default function App() {
           isSaved={preferences.savedWordIds.includes(selectedWord.id)}
           onToggleSave={handleToggleSaveWord}
           onClose={() => setSelectedWord(null)}
-          onSelectWordById={async (id) => {
-            const found = await dictionaryDb.getEntryById(id);
+          onSelectWordById={(id) => {
+            const found = dictionaryDb.getEntryById(id);
             if (found) setSelectedWord(found);
           }}
           onSetLanguages={(src, tgt) => {

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { LanguageCode, WordEntry } from '../types/dictionary';
+import React, { useState } from 'react';
+import { LanguageCode } from '../types/dictionary';
 import { LANGUAGES } from '../data/languages';
 import { dictionaryDb } from '../services/dictionaryDatabase';
 import { audioService } from '../services/audioService';
@@ -48,7 +48,6 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
   // Flashcards state
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
-  const [flashcardList, setFlashcardList] = useState<WordEntry[]>([]);
 
   // Quiz state
   const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
@@ -61,29 +60,14 @@ export const LearnScreen: React.FC<LearnScreenProps> = ({
   const content = getContentCopy(interfaceLang);
   const quizQuestions = content.quizQuestions;
 
-  // Prepare flashcard list from SQLite dictionary
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        if (sourceLang !== targetLang) {
-          const pairRes = await dictionaryDb.searchMultilingual('', sourceLang, targetLang);
-          if (active && pairRes.results.length > 0) {
-            setFlashcardList(pairRes.results.slice(0, 40).map((r) => r.entry));
-            return;
-          }
-        }
-        const sample = await dictionaryDb.getSampleEntries({ lang: sourceLang, limit: 30 });
-        if (active) setFlashcardList(sample);
-      } catch {
-        // Safe fallback
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [sourceLang, targetLang]);
-
+  // Prepare cards based on dictionary entries
+  const allEntries = dictionaryDb.getAllEntries();
+  const pairEntries = allEntries.filter(
+    (e) =>
+      (e.sourceLang === sourceLang && !!e.translations[targetLang]?.length) ||
+      (e.sourceLang === targetLang && !!e.translations[sourceLang]?.length)
+  );
+  const flashcardList = pairEntries.length > 0 ? pairEntries : allEntries;
   const currentCard = flashcardList.length > 0 ? flashcardList[currentCardIndex % flashcardList.length] : null;
   const sourceMeta = currentCard ? LANGUAGES[currentCard.sourceLang] : LANGUAGES[sourceLang];
   const targetMeta = LANGUAGES[targetLang];

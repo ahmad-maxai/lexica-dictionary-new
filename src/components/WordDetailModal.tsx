@@ -1,12 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import {
-  DictionaryMode,
-  WordEntry,
-  WordSense,
-  MorphologicalForm,
-  LanguageCode,
-  TranslationRelationship,
-} from '../types/dictionary';
+import React, { useState } from 'react';
+import { DictionaryMode, WordEntry, LanguageCode, TranslationRelationship } from '../types/dictionary';
 import { LANGUAGES } from '../data/languages';
 import { dictionaryDb } from '../services/dictionaryDatabase';
 import { audioService } from '../services/audioService';
@@ -55,62 +48,15 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 }) => {
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [senses, setSenses] = useState<WordSense[]>([]);
-  const [morphologicalForms, setMorphologicalForms] = useState<MorphologicalForm[]>([]);
-  const [translationLinks, setTranslationLinks] = useState<TranslationRelationship[]>([]);
-
-  useEffect(() => {
-    if (!word) return;
-    let active = true;
-
-    // Populate immediately from passed WordEntry to avoid UI flicker
-    setSenses(word.senses || []);
-    setMorphologicalForms(word.morphologicalForms || []);
-
-    const initialLinks: TranslationRelationship[] = [];
-    for (const [tLang, equivs] of Object.entries(word.translations || {})) {
-      (equivs || []).forEach((eq, idx) => {
-        initialLinks.push({
-          id: `${word.id}->${tLang}#${idx + 1}`,
-          sourceSenseId: eq.sourceSenseId || word.senses?.[0]?.id || `${word.id}#s1`,
-          sourceEntryId: word.id,
-          sourceLang: word.sourceLang,
-          targetLang: tLang as LanguageCode,
-          targetHeadword: eq.headword,
-          transliteration: eq.transliteration || null,
-          scriptVariant: eq.scriptVariant || null,
-          partOfSpeech: eq.partOfSpeech,
-          targetDefinition: eq.definition,
-          equivalenceType: eq.equivalenceType || 'literal',
-          contextualNote: eq.contextualNote || null,
-          register: eq.register || null,
-          sourceAttribution: word.sourceAttribution || null,
-        });
-      });
-    }
-    setTranslationLinks(initialLinks);
-
-    // Refresh full relational metadata directly from SQLite
-    dictionaryDb
-      .getEntryDetails(word.id)
-      .then((details) => {
-        if (!active) return;
-        if (details.senses.length > 0) setSenses(details.senses);
-        if (details.morphologicalForms.length > 0) setMorphologicalForms(details.morphologicalForms);
-        if (details.translationLinks.length > 0) setTranslationLinks(details.translationLinks);
-      })
-      .catch(() => {});
-
-    return () => {
-      active = false;
-    };
-  }, [word]);
 
   if (!word) return null;
 
   const copy = getUiCopy(interfaceLang);
   const sourceMeta = LANGUAGES[word.sourceLang];
   const sourceName = getLangName(sourceMeta.code, interfaceLang);
+  const senses = dictionaryDb.getEntrySenses(word.id);
+  const morphologicalForms = dictionaryDb.getEntryMorphology(word.id);
+  const translationLinks = dictionaryDb.getEntryTranslationLinks(word.id);
 
   // Group translation links by target language
   const linksByTargetLang = translationLinks.reduce<Record<string, TranslationRelationship[]>>(
