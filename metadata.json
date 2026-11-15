@@ -1,0 +1,6 @@
+{
+  "name": "Lexica: Multilingual Dictionary",
+  "description": "An offline-first, culturally expressive multilingual reference dictionary connecting English, Hausa, Yoruba, Fulfulde, Arabic, French, and Mandarin Chinese.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

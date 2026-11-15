@@ -1,0 +1,245 @@
+{
+  "version": "2026.6.0",
+  "schemaVersion": 1,
+  "coreSizeBytes": 48529408,
+  "coreStats": {
+    "en": {
+      "entryCount": 2200,
+      "senseCount": 9550,
+      "translationCount": 12477
+    },
+    "ha": {
+      "entryCount": 1600,
+      "senseCount": 2107,
+      "translationCount": 1631
+    },
+    "yo": {
+      "entryCount": 2400,
+      "senseCount": 3896,
+      "translationCount": 2803
+    },
+    "ff": {
+      "entryCount": 1400,
+      "senseCount": 1703,
+      "translationCount": 1709
+    },
+    "ar": {
+      "entryCount": 2000,
+      "senseCount": 5644,
+      "translationCount": 4920
+    },
+    "fr": {
+      "entryCount": 2000,
+      "senseCount": 5863,
+      "translationCount": 4905
+    },
+    "zh": {
+      "entryCount": 2200,
+      "senseCount": 6041,
+      "translationCount": 5551
+    }
+  },
+  "packs": [
+    {
+      "packId": "pack-en-v2026.6.0",
+      "langCode": "en",
+      "tier": "full_pack",
+      "version": "2026.6.0",
+      "schemaVersion": 1,
+      "dbFileName": "lexica_pack_enSQLite.db",
+      "compressedFileName": "lexica_pack_en.sqlite.gz",
+      "downloadUrl": "https://raw.githubusercontent.com/ahmad-maxai/lexica-dictionary-new/feature/lexica-sqlite-migration/packs/lexica_pack_en.sqlite.gz",
+      "fallbackDownloadUrl": "https://cdn.jsdelivr.net/gh/ahmad-maxai/lexica-dictionary-new@feature/lexica-sqlite-migration/packs/lexica_pack_en.sqlite.gz",
+      "sizeBytes": 99155968,
+      "compressedSizeBytes": 28506807,
+      "sha256Checksum": "856f48679da638b5850a216e34c93ba9cf386a68f1f9e25c8471bbc92d4c7899",
+      "entryCount": 25000,
+      "senseCount": 103423,
+      "translationCount": 23022,
+      "sources": [
+        {
+          "name": "Lexica Curated Starter Corpus",
+          "license": "CC BY-SA 4.0"
+        },
+        {
+          "name": "Kaikki.org / English Wiktionary Contributors",
+          "license": "CC BY-SA 4.0",
+          "url": "https://kaikki.org/dictionary/"
+        }
+      ]
+    },
+    {
+      "packId": "pack-ha-v2026.6.0",
+      "langCode": "ha",
+      "tier": "full_pack",
+      "version": "2026.6.0",
+      "schemaVersion": 1,
+      "dbFileName": "lexica_pack_haSQLite.db",
+      "compressedFileName": "lexica_pack_ha.sqlite.gz",
+      "downloadUrl": "https://raw.githubusercontent.com/ahmad-maxai/lexica-dictionary-new/feature/lexica-sqlite-migration/packs/lexica_pack_ha.sqlite.gz",
+      "fallbackDownloadUrl": "https://cdn.jsdelivr.net/gh/ahmad-maxai/lexica-dictionary-new@feature/lexica-sqlite-migration/packs/lexica_pack_ha.sqlite.gz",
+      "sizeBytes": 3948544,
+      "compressedSizeBytes": 1162594,
+      "sha256Checksum": "2f338ae1fa36430706f0236644d587a94f8212d2a71c7693200b5f7325d0d8cf",
+      "entryCount": 2120,
+      "senseCount": 2627,
+      "translationCount": 1638,
+      "sources": [
+        {
+          "name": "Lexica Curated Starter Corpus",
+          "license": "CC BY-SA 4.0"
+        },
+        {
+          "name": "Kaikki.org / English Wiktionary Contributors",
+          "license": "CC BY-SA 4.0",
+          "url": "https://kaikki.org/dictionary/"
+        }
+      ]
+    },
+    {
+      "packId": "pack-yo-v2026.6.0",
+      "langCode": "yo",
+      "tier": "full_pack",
+      "version": "2026.6.0",
+      "schemaVersion": 1,
+      "dbFileName": "lexica_pack_yoSQLite.db",
+      "compressedFileName": "lexica_pack_yo.sqlite.gz",
+      "downloadUrl": "https://raw.githubusercontent.com/ahmad-maxai/lexica-dictionary-new/feature/lexica-sqlite-migration/packs/lexica_pack_yo.sqlite.gz",
+      "fallbackDownloadUrl": "https://cdn.jsdelivr.net/gh/ahmad-maxai/lexica-dictionary-new@feature/lexica-sqlite-migration/packs/lexica_pack_yo.sqlite.gz",
+      "sizeBytes": 15134720,
+      "compressedSizeBytes": 4666318,
+      "sha256Checksum": "b0c6e4e3a9998d312e5f46edc30f35b934cb0973f4725a1ffe3a75d1d9abb110",
+      "entryCount": 8458,
+      "senseCount": 10023,
+      "translationCount": 6406,
+      "sources": [
+        {
+          "name": "Lexica Curated Starter Corpus",
+          "license": "CC BY-SA 4.0"
+        },
+        {
+          "name": "Kaikki.org / English Wiktionary Contributors",
+          "license": "CC BY-SA 4.0",
+          "url": "https://kaikki.org/dictionary/"
+        },
+        {
+          "name": "IwajuAI English-Yoruba Dictionary",
+          "license": "Apache-2.0",
+          "url": "https://huggingface.co/datasets/IwajuAI/English-Yoruba-Dictionary"
+        }
+      ]
+    },
+    {
+      "packId": "pack-ff-v2026.6.0",
+      "langCode": "ff",
+      "tier": "full_pack",
+      "version": "2026.6.0",
+      "schemaVersion": 1,
+      "dbFileName": "lexica_pack_ffSQLite.db",
+      "compressedFileName": "lexica_pack_ff.sqlite.gz",
+      "downloadUrl": "https://raw.githubusercontent.com/ahmad-maxai/lexica-dictionary-new/feature/lexica-sqlite-migration/packs/lexica_pack_ff.sqlite.gz",
+      "fallbackDownloadUrl": "https://cdn.jsdelivr.net/gh/ahmad-maxai/lexica-dictionary-new@feature/lexica-sqlite-migration/packs/lexica_pack_ff.sqlite.gz",
+      "sizeBytes": 2985984,
+      "compressedSizeBytes": 841591,
+      "sha256Checksum": "90019ebed1ccdcc14f0ad4ff68a7e7aa703757f8580a26c0211ae777e70ce6d8",
+      "entryCount": 1938,
+      "senseCount": 2241,
+      "translationCount": 1709,
+      "sources": [
+        {
+          "name": "Lexica Curated Starter Corpus",
+          "license": "CC BY-SA 4.0"
+        },
+        {
+          "name": "Kaikki.org / English Wiktionary Contributors",
+          "license": "CC BY-SA 4.0",
+          "url": "https://kaikki.org/dictionary/"
+        }
+      ]
+    },
+    {
+      "packId": "pack-ar-v2026.6.0",
+      "langCode": "ar",
+      "tier": "full_pack",
+      "version": "2026.6.0",
+      "schemaVersion": 1,
+      "dbFileName": "lexica_pack_arSQLite.db",
+      "compressedFileName": "lexica_pack_ar.sqlite.gz",
+      "downloadUrl": "https://raw.githubusercontent.com/ahmad-maxai/lexica-dictionary-new/feature/lexica-sqlite-migration/packs/lexica_pack_ar.sqlite.gz",
+      "fallbackDownloadUrl": "https://cdn.jsdelivr.net/gh/ahmad-maxai/lexica-dictionary-new@feature/lexica-sqlite-migration/packs/lexica_pack_ar.sqlite.gz",
+      "sizeBytes": 78110720,
+      "compressedSizeBytes": 18809753,
+      "sha256Checksum": "65a3834b029011ed10304a714aa37b9ad902c4fa6e2870a4ba842cecaad23682",
+      "entryCount": 20000,
+      "senseCount": 37449,
+      "translationCount": 19121,
+      "sources": [
+        {
+          "name": "Lexica Curated Starter Corpus",
+          "license": "CC BY-SA 4.0"
+        },
+        {
+          "name": "Kaikki.org / English Wiktionary Contributors",
+          "license": "CC BY-SA 4.0",
+          "url": "https://kaikki.org/dictionary/"
+        }
+      ]
+    },
+    {
+      "packId": "pack-fr-v2026.6.0",
+      "langCode": "fr",
+      "tier": "full_pack",
+      "version": "2026.6.0",
+      "schemaVersion": 1,
+      "dbFileName": "lexica_pack_frSQLite.db",
+      "compressedFileName": "lexica_pack_fr.sqlite.gz",
+      "downloadUrl": "https://raw.githubusercontent.com/ahmad-maxai/lexica-dictionary-new/feature/lexica-sqlite-migration/packs/lexica_pack_fr.sqlite.gz",
+      "fallbackDownloadUrl": "https://cdn.jsdelivr.net/gh/ahmad-maxai/lexica-dictionary-new@feature/lexica-sqlite-migration/packs/lexica_pack_fr.sqlite.gz",
+      "sizeBytes": 63762432,
+      "compressedSizeBytes": 17792526,
+      "sha256Checksum": "32d051c14c51f878e5884d0ccc0e6f40641186b94d10b6a1e7eae22bcdb443b1",
+      "entryCount": 25000,
+      "senseCount": 45824,
+      "translationCount": 25914,
+      "sources": [
+        {
+          "name": "Lexica Curated Starter Corpus",
+          "license": "CC BY-SA 4.0"
+        },
+        {
+          "name": "Kaikki.org / English Wiktionary Contributors",
+          "license": "CC BY-SA 4.0",
+          "url": "https://kaikki.org/dictionary/"
+        }
+      ]
+    },
+    {
+      "packId": "pack-zh-v2026.6.0",
+      "langCode": "zh",
+      "tier": "full_pack",
+      "version": "2026.6.0",
+      "schemaVersion": 1,
+      "dbFileName": "lexica_pack_zhSQLite.db",
+      "compressedFileName": "lexica_pack_zh.sqlite.gz",
+      "downloadUrl": "https://raw.githubusercontent.com/ahmad-maxai/lexica-dictionary-new/feature/lexica-sqlite-migration/packs/lexica_pack_zh.sqlite.gz",
+      "fallbackDownloadUrl": "https://cdn.jsdelivr.net/gh/ahmad-maxai/lexica-dictionary-new@feature/lexica-sqlite-migration/packs/lexica_pack_zh.sqlite.gz",
+      "sizeBytes": 71548928,
+      "compressedSizeBytes": 19609424,
+      "sha256Checksum": "31d53b9ac4cf131c0ef54c9f6a605bbc485eb92484db9daac0afeb59ab31fe49",
+      "entryCount": 35000,
+      "senseCount": 86514,
+      "translationCount": 70702,
+      "sources": [
+        {
+          "name": "Lexica Curated Starter Corpus",
+          "license": "CC BY-SA 4.0"
+        },
+        {
+          "name": "MDBG CC-CEDICT Chinese-English Dictionary",
+          "license": "CC BY-SA 4.0",
+          "url": "https://www.mdbg.net/chinese/dictionary?page=cc-cedict"
+        }
+      ]
+    }
+  ]
+}
