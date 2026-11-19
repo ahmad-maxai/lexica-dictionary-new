@@ -2,6 +2,7 @@ import React from 'react';
 import { LanguageCode } from '../types/dictionary';
 import { LANGUAGE_LIST } from '../data/languages';
 import { getUiCopy, getLangName } from '../i18n';
+import { ENGLISH_PACK_MANIFEST } from '../config/englishDictionaryConfig';
 import {
   X,
   Globe2,
@@ -199,6 +200,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 />
               </button>
             </div>
+          </div>
+
+          {/* Offline English Dictionary Attribution */}
+          <div className="pt-4 border-t border-slate-200/60 dark:border-slate-800/60 space-y-1">
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Data Sources &amp; Attribution
+            </div>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              {ENGLISH_PACK_MANIFEST.attribution.attributionText}
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              License: {ENGLISH_PACK_MANIFEST.attribution.license} · English Pack v{ENGLISH_PACK_MANIFEST.packVersion}
+            </p>
           </div>
 
           {/* Reset Onboarding Walkthrough */}

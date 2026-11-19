@@ -1,7 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { LanguageCode, InstalledPack } from '../types/dictionary';
 import { LANGUAGE_LIST } from '../data/languages';
 import { dictionaryDb } from '../services/dictionaryDatabase';
+import { ENGLISH_PACK_MANIFEST, isEnglishSqliteIntegrationEnabled } from '../config/englishDictionaryConfig';
+import {
+  englishPackService,
+  type EnglishPackStatus,
+  type PackInstallProgress,
+} from '../services/englishPackService';
+import {
+  englishSqliteRepo,
+  type EnglishBenchmarkReport,
+} from '../services/englishSqliteRepository';
 import {
   getUiCopy,
   getContentCopy,
@@ -16,6 +26,11 @@ import {
   ChevronDown,
   ChevronUp,
   Database,
+  AlertCircle,
+  Pause,
+  ShieldCheck,
+  Trash2,
+  Gauge,
 } from 'lucide-react';
 
 interface LanguageLibraryScreenProps {
@@ -30,26 +45,130 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
   installedPacks,
   onTogglePack,
 }) => {
-  const [expandedLang, setExpandedLang] = useState<LanguageCode | null>('ha');
+  const [expandedLang, setExpandedLang] = useState<LanguageCode | null>('en');
   const [downloadingCode, setDownloadingCode] = useState<LanguageCode | null>(null);
+  const [englishStatus, setEnglishStatus] = useState<EnglishPackStatus>(() =>
+    englishPackService.getCachedStatus()
+  );
+  const [englishProgress, setEnglishProgress] = useState<PackInstallProgress>(() =>
+    englishPackService.getCachedProgress()
+  );
+  const [englishActionError, setEnglishActionError] = useState<string | null>(null);
+  const [englishVerifyMsg, setEnglishVerifyMsg] = useState<string | null>(null);
+  const [benchmarkReport, setBenchmarkReport] = useState<EnglishBenchmarkReport | null>(null);
+  const [isRunningBenchmark, setIsRunningBenchmark] = useState(false);
+
+  useEffect(() => {
+    const unsubStatus = englishPackService.subscribeStatus(setEnglishStatus);
+    const unsubProgress = englishPackService.subscribeProgress(setEnglishProgress);
+    void englishPackService.refreshStatus();
+    return () => {
+      unsubStatus();
+      unsubProgress();
+    };
+  }, []);
 
   const copy = getUiCopy(interfaceLang);
   const content = getContentCopy(interfaceLang);
 
   const liveStats = dictionaryDb.getLanguagePackStats();
+  const sqliteEnEnabled = isEnglishSqliteIntegrationEnabled();
+  const isNativeAndroid = englishPackService.isNativeAndroid();
+  const useSqliteEnglishCard = sqliteEnEnabled && (isNativeAndroid || englishStatus.installed);
 
   const totalInstalledBytes = Object.values(liveStats).reduce((sum, stat) => {
+    if (stat.code === 'en' && useSqliteEnglishCard) {
+      return englishStatus.installed
+        ? sum + (englishStatus.dbSizeBytes || ENGLISH_PACK_MANIFEST.uncompressedSizeBytes)
+        : sum;
+    }
     return stat.isInstalled ? sum + stat.actualSizeBytes : sum;
   }, 0);
   const totalInstalledMb = totalInstalledBytes / (1024 * 1024);
 
-  const installedCount = Object.values(liveStats).filter((s) => s.isInstalled).length;
-  const totalActiveEntries = Object.values(liveStats).reduce(
-    (sum, s) => sum + s.loadedEntriesCount,
-    0
-  );
+  const installedCount = Object.values(liveStats).filter((s) => {
+    if (s.code === 'en' && useSqliteEnglishCard) {
+      return englishStatus.installed;
+    }
+    return s.isInstalled;
+  }).length;
+
+  const totalActiveEntries = Object.values(liveStats).reduce((sum, s) => {
+    if (s.code === 'en' && useSqliteEnglishCard) {
+      return englishStatus.installed
+        ? sum + (englishStatus.acceptedEntries || ENGLISH_PACK_MANIFEST.acceptedEntries)
+        : sum;
+    }
+    return sum + s.loadedEntriesCount;
+  }, 0);
+
+  const handleInstallOrResumeEnglish = async () => {
+    setEnglishActionError(null);
+    setEnglishVerifyMsg(null);
+    setDownloadingCode('en');
+    try {
+      await englishPackService.installEnglishPack();
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      if (code !== 'DOWNLOAD_CANCELLED') {
+        setEnglishActionError(
+          err instanceof Error ? err.message : 'Unable to install offline English SQLite pack.'
+        );
+      }
+    } finally {
+      setDownloadingCode(null);
+    }
+  };
+
+  const handleRemoveEnglish = async () => {
+    setEnglishActionError(null);
+    setEnglishVerifyMsg(null);
+    setBenchmarkReport(null);
+    setDownloadingCode('en');
+    try {
+      await englishPackService.removeEnglishPack();
+    } catch (err) {
+      setEnglishActionError(err instanceof Error ? err.message : 'Unable to remove English pack.');
+    } finally {
+      setDownloadingCode(null);
+    }
+  };
+
+  const handleVerifyEnglish = async () => {
+    setEnglishActionError(null);
+    setEnglishVerifyMsg(null);
+    try {
+      const verified = await englishPackService.verifyInstalledPack();
+      setEnglishVerifyMsg(
+        `SQLite quick_check OK · ${(verified.acceptedEntries || ENGLISH_PACK_MANIFEST.acceptedEntries).toLocaleString()} entries verified.`
+      );
+    } catch (err) {
+      setEnglishActionError(err instanceof Error ? err.message : 'Integrity verification failed.');
+    }
+  };
+
+  const handleRunEnglishBenchmark = async () => {
+    setEnglishActionError(null);
+    setIsRunningBenchmark(true);
+    try {
+      const report = await englishSqliteRepo.runBenchmark();
+      setBenchmarkReport(report);
+    } catch (err) {
+      setEnglishActionError(err instanceof Error ? err.message : 'Benchmark failed.');
+    } finally {
+      setIsRunningBenchmark(false);
+    }
+  };
 
   const handleDownloadToggle = (code: LanguageCode) => {
+    if (code === 'en' && useSqliteEnglishCard) {
+      if (englishStatus.installed) {
+        void handleRemoveEnglish();
+      } else {
+        void handleInstallOrResumeEnglish();
+      }
+      return;
+    }
     setDownloadingCode(code);
     setTimeout(() => {
       onTogglePack(code);
@@ -88,17 +207,35 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
       <div className="space-y-4">
         {LANGUAGE_LIST.map((lang) => {
           const stat = liveStats[lang.code];
+          const isEnglishSqliteCard = lang.code === 'en' && useSqliteEnglishCard;
           const pack = installedPacks[lang.code] || {
             code: lang.code,
             installed: stat.isInstalled,
             version: stat.datasetVersion,
             sizeMb: stat.actualSizeMb,
           };
-          const isInstalled = stat.isInstalled;
+          const isInstalled = isEnglishSqliteCard ? englishStatus.installed : stat.isInstalled;
+          const displayVersion = isEnglishSqliteCard
+            ? englishStatus.datasetVersion || ENGLISH_PACK_MANIFEST.packVersion
+            : pack.version;
+          const displayEntries = isEnglishSqliteCard
+            ? isInstalled
+              ? englishStatus.acceptedEntries || ENGLISH_PACK_MANIFEST.acceptedEntries
+              : ENGLISH_PACK_MANIFEST.acceptedEntries
+            : stat.loadedEntriesCount;
+          const displaySenses = isEnglishSqliteCard
+            ? isInstalled
+              ? englishStatus.totalSenses || ENGLISH_PACK_MANIFEST.totalSenses
+              : ENGLISH_PACK_MANIFEST.totalSenses
+            : stat.sensesCount;
 
           const isExpanded = expandedLang === lang.code;
-          const isDownloading = downloadingCode === lang.code;
+          const isDownloading =
+            downloadingCode === lang.code || (isEnglishSqliteCard && englishStatus.inProgress);
           const kbSize = Math.round(stat.actualSizeBytes / 1024);
+          const enCompressedMb = (ENGLISH_PACK_MANIFEST.compressedSizeBytes / (1024 * 1024)).toFixed(2);
+          const enUncompressedMb = (ENGLISH_PACK_MANIFEST.uncompressedSizeBytes / (1024 * 1024)).toFixed(2);
+          const hasPartialResume = isEnglishSqliteCard && !isInstalled && englishStatus.partialBytes > 0;
 
           return (
             <div
@@ -131,7 +268,7 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                         {getLangName(lang.code, interfaceLang)}
                       </h3>
                       <span dir="ltr" className="text-xs font-mono text-slate-500">
-                        v{pack.version}
+                        v{displayVersion}
                       </span>
                     </div>
 
@@ -150,7 +287,11 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                 <div className="flex items-center gap-2.5">
                   <div className="text-end hidden sm:block">
                     <div dir="ltr" className="text-xs font-bold text-slate-800 dark:text-slate-200 tabular-nums">
-                      {kbSize} KB ({stat.actualSizeMb.toFixed(2)} MB)
+                      {isEnglishSqliteCard
+                        ? isInstalled
+                          ? `${enUncompressedMb} MB offline`
+                          : `${enCompressedMb} MB download · ${enUncompressedMb} MB offline`
+                        : `${kbSize} KB (${stat.actualSizeMb.toFixed(2)} MB)`}
                     </div>
                     <div
                       className={`text-[11px] font-medium tabular-nums ${
@@ -161,10 +302,14 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                     >
                       {isInstalled
                         ? formatText(copy.library.entriesInline, {
-                            entries: stat.loadedEntriesCount,
-                            senses: stat.sensesCount,
+                            entries: displayEntries.toLocaleString(),
+                            senses: displaySenses.toLocaleString(),
                           })
-                        : copy.library.notInstalledStatus}
+                        : isEnglishSqliteCard
+                          ? hasPartialResume
+                            ? `Paused (${(englishStatus.partialBytes / (1024 * 1024)).toFixed(1)} MB saved)`
+                            : copy.library.notInstalledStatus
+                          : copy.library.notInstalledStatus}
                     </div>
                   </div>
 
@@ -191,10 +336,28 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                     ) : (
                       <>
                         <HardDriveDownload className="w-3.5 h-3.5" />
-                        <span>{copy.library.installPack}</span>
+                        <span>
+                          {hasPartialResume
+                            ? `Resume (${enCompressedMb} MB)`
+                            : isEnglishSqliteCard
+                              ? `Install (${enCompressedMb} MB)`
+                              : copy.library.installPack}
+                        </span>
                       </>
                     )}
                   </button>
+
+                  {isEnglishSqliteCard && isDownloading && (
+                    <button
+                      type="button"
+                      onClick={() => void englishPackService.pauseOrCancelInstall()}
+                      className="h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800"
+                      title="Pause download"
+                    >
+                      <Pause className="w-3.5 h-3.5" />
+                      <span>Pause</span>
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -206,19 +369,61 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                 </div>
               </div>
 
+              {/* English SQLite Download / Extraction Progress & Error Strip */}
+              {isEnglishSqliteCard && (isDownloading || englishActionError || englishStatus.error) && (
+                <div className="px-5 pb-4 space-y-2">
+                  {isDownloading && (
+                    <div className="p-3 rounded-2xl bg-[#EEF4F0] dark:bg-[#172B22] border border-[#204031]/20 dark:border-[#7E9E88]/30 space-y-1.5">
+                      <div className="flex items-center justify-between text-xs font-medium text-[#204031] dark:text-[#7E9E88]">
+                        <span>{englishProgress.message || copy.library.updating}</span>
+                        <span dir="ltr" className="font-mono tabular-nums">
+                          {englishProgress.percent}%
+                        </span>
+                      </div>
+                      <div className="w-full h-2 rounded-full bg-white dark:bg-[#101C16] overflow-hidden">
+                        <div
+                          className="h-full bg-[#204031] dark:bg-[#7E9E88] transition-all duration-200"
+                          style={{ width: `${Math.max(4, Math.min(100, englishProgress.percent))}%` }}
+                        />
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums" dir="ltr">
+                        {(englishProgress.processedBytes / (1024 * 1024)).toFixed(1)} MB /{' '}
+                        {(englishProgress.totalBytes / (1024 * 1024)).toFixed(1)} MB
+                      </div>
+                    </div>
+                  )}
+
+                  {(englishActionError || englishStatus.error) && (
+                    <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 flex items-start justify-between gap-2 text-xs text-rose-800 dark:text-rose-200">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" />
+                        <span>{englishActionError || englishStatus.error}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleInstallOrResumeEnglish()}
+                        className="px-2.5 py-1 rounded-lg bg-rose-700 text-white text-[11px] font-semibold shrink-0 cursor-pointer"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Expanded Linguistic Specification */}
               {isExpanded && (
                 <div className="px-5 pb-5 pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-4 animate-in fade-in duration-200">
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#172B22] border border-slate-200/60 dark:border-slate-800">
                       <div className="text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums">
-                        {stat.loadedEntriesCount}
+                        {displayEntries.toLocaleString()}
                       </div>
                       <div className="text-[11px] text-slate-500">{copy.library.entriesBox}</div>
                     </div>
                     <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#172B22] border border-slate-200/60 dark:border-slate-800">
                       <div className="text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums">
-                        {stat.sensesCount}
+                        {displaySenses.toLocaleString()}
                       </div>
                       <div className="text-[11px] text-slate-500">{copy.library.wordSensesBox}</div>
                     </div>
@@ -229,6 +434,78 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                       <div className="text-[11px] text-slate-500">{copy.library.translationLinksBox}</div>
                     </div>
                   </div>
+
+                  {isEnglishSqliteCard && (
+                    <div className="p-3.5 rounded-2xl bg-[#F4EFE6] dark:bg-[#162720] border border-slate-200/80 dark:border-slate-800 space-y-2.5 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="font-bold text-slate-900 dark:text-slate-100">
+                            {ENGLISH_PACK_MANIFEST.attribution.sourceName}
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {ENGLISH_PACK_MANIFEST.attribution.license} · Pack v{ENGLISH_PACK_MANIFEST.packVersion} ·{' '}
+                            {ENGLISH_PACK_MANIFEST.distinctHeadwords.toLocaleString()} headwords
+                          </div>
+                        </div>
+                        {englishStatus.availableBytes > 0 && (
+                          <span dir="ltr" className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                            Free storage: {(englishStatus.availableBytes / (1024 * 1024 * 1024)).toFixed(2)} GB
+                          </span>
+                        )}
+                      </div>
+
+                      {isInstalled && (
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => void handleVerifyEnglish()}
+                            className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1F372C] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            <span>Verify SQLite</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={isRunningBenchmark}
+                            onClick={() => void handleRunEnglishBenchmark()}
+                            className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1F372C] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                          >
+                            <Gauge className="w-3.5 h-3.5" />
+                            <span>{isRunningBenchmark ? 'Running Benchmark...' : 'Run Device Benchmark'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => void handleRemoveEnglish()}
+                            className="px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 text-[11px] font-semibold text-rose-700 dark:text-rose-300 flex items-center gap-1.5 cursor-pointer ms-auto"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Remove Pack</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {englishVerifyMsg && (
+                        <div className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                          {englishVerifyMsg}
+                        </div>
+                      )}
+
+                      {benchmarkReport && (
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-[#101C16] border border-slate-200/80 dark:border-slate-800 text-[11px] font-mono space-y-1 text-slate-700 dark:text-slate-300" dir="ltr">
+                          <div>Cold Open: {benchmarkReport.coldOpenMs} ms | Warm Open: {benchmarkReport.warmOpenMs} ms | FTS5: {benchmarkReport.fts5Supported ? 'YES' : 'NO'}</div>
+                          <div>Prefix: {benchmarkReport.prefixSearchMs} ms | FTS5 Search: {benchmarkReport.fts5SearchMs} ms | Pagination: {benchmarkReport.paginatedSearchMs} ms</div>
+                          <div>100-Query Loop: avg {benchmarkReport.repeated100QueriesAvgMs} ms | p95 {benchmarkReport.repeated100QueriesP95Ms} ms</div>
+                          {benchmarkReport.memoryMetrics && (
+                            <div>
+                              Java Heap: {(benchmarkReport.memoryMetrics.javaHeapUsedBytes / (1024 * 1024)).toFixed(1)} MB | Native Heap: {(benchmarkReport.memoryMetrics.nativeHeapAllocatedBytes / (1024 * 1024)).toFixed(1)} MB
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#172B22] border border-slate-200/60 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
                     <span className="font-bold text-slate-900 dark:text-slate-100">

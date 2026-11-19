@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   DictionaryMode,
   LanguageCode,
@@ -9,6 +9,9 @@ import {
 import { LANGUAGES, LANGUAGE_LIST } from '../data/languages';
 import { WORD_OF_THE_DAY, CURATED_COLLECTIONS } from '../data/dictionaryData';
 import { dictionaryDb } from '../services/dictionaryDatabase';
+import { ENGLISH_PACK_MANIFEST, isEnglishSqliteIntegrationEnabled } from '../config/englishDictionaryConfig';
+import { englishPackService, type EnglishPackStatus } from '../services/englishPackService';
+import { searchEnglishStandardUnified } from '../services/englishSearchCoordinator';
 import { audioService } from '../services/audioService';
 import {
   getUiCopy,
@@ -70,6 +73,58 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [isSwapping, setIsSwapping] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [englishPackStatus, setEnglishPackStatus] = useState<EnglishPackStatus>(() =>
+    englishPackService.getCachedStatus()
+  );
+  const [asyncEnglishResponse, setAsyncEnglishResponse] = useState<StandardSearchResponse | null>(null);
+  const [isEnglishSearching, setIsEnglishSearching] = useState(false);
+
+  useEffect(() => {
+    return englishPackService.subscribeStatus((status) => {
+      setEnglishPackStatus(status);
+    });
+  }, []);
+
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (
+      dictionaryMode !== 'standard' ||
+      sourceLang !== 'en' ||
+      !trimmed ||
+      !isEnglishSqliteIntegrationEnabled()
+    ) {
+      setAsyncEnglishResponse(null);
+      setIsEnglishSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsEnglishSearching(true);
+    searchEnglishStandardUnified(trimmed, { limit: 20, offset: 0 })
+      .then((res) => {
+        if (!cancelled) {
+          setAsyncEnglishResponse(res);
+          setIsEnglishSearching(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setAsyncEnglishResponse({
+            status: 'error',
+            language: 'en',
+            query: trimmed,
+            results: [],
+            engineSource: 'sqlite-en',
+            message: err instanceof Error ? err.message : 'Unable to search offline English dictionary.',
+          });
+          setIsEnglishSearching(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dictionaryMode, sourceLang, searchQuery, englishPackStatus.installed]);
 
   const handleSelectSearchResult = (entry: WordEntry) => {
     if (searchQuery.trim() && onRecordSearch) {
@@ -108,10 +163,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   };
 
   // Engine 1: Standard Monolingual Search
-  const standardResponse: StandardSearchResponse | null = useMemo(() => {
+  const syncStandardResponse: StandardSearchResponse | null = useMemo(() => {
     if (dictionaryMode !== 'standard' || !searchQuery.trim()) return null;
+    if (sourceLang === 'en' && isEnglishSqliteIntegrationEnabled()) return null;
     return dictionaryDb.searchStandard(searchQuery.trim(), sourceLang);
   }, [dictionaryMode, searchQuery, sourceLang]);
+
+  const standardResponse: StandardSearchResponse | null =
+    dictionaryMode === 'standard' && sourceLang === 'en' && isEnglishSqliteIntegrationEnabled()
+      ? asyncEnglishResponse
+      : syncStandardResponse;
 
   // Engine 2: Multilingual Search
   const multilingualResponse: MultilingualSearchResponse | null = useMemo(() => {
@@ -403,6 +464,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 ? formatText(copy.search.dictionarySubtitle, { lang: sourceName })
                 : `${sourceName} → ${targetName}`}{' '}
               · “<strong className="text-slate-800 dark:text-slate-200">{searchQuery}</strong>”
+              {dictionaryMode === 'standard' && standardResponse?.engineSource === 'sqlite-en' && (
+                <span className="ms-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#EEF4F0] dark:bg-[#1F372C] text-[#204031] dark:text-[#7E9E88]">
+                  Wiktionary SQLite
+                </span>
+              )}
+              {dictionaryMode === 'standard' && standardResponse?.engineSource === 'web-preview-fallback' && (
+                <span className="ms-1.5 text-[10px] font-medium text-slate-400">
+                  (Web preview)
+                </span>
+              )}
             </span>
             <span>
               {activeResultCount}{' '}
@@ -675,8 +746,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </div>
           )}
 
+          {isEnglishSearching && activeResultCount === 0 && (
+            <div className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">
+              Searching English dictionary...
+            </div>
+          )}
+
           {/* EXPLICIT EMPTY / ERROR STATES */}
-          {activeResultCount === 0 && currentStatus && currentStatus !== 'ok' && currentStatus !== 'browse' && (
+          {!isEnglishSearching && activeResultCount === 0 && currentStatus && currentStatus !== 'ok' && currentStatus !== 'browse' && (
             <div className="py-8 px-4 text-center rounded-2xl bg-white dark:bg-[#15231D] border border-dashed border-slate-200 dark:border-slate-800 space-y-3">
               {currentStatus === 'language_not_installed' || currentStatus === 'error' ? (
                 <AlertCircle className="w-7 h-7 text-[#C47248] mx-auto" />
@@ -690,7 +767,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 </h4>
 
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1 leading-relaxed">
-                  {localizedStatus.desc}
+                  {currentStatus === 'language_not_installed' && sourceLang === 'en' && standardResponse?.message
+                    ? standardResponse.message
+                    : currentStatus === 'error' && standardResponse?.message
+                      ? standardResponse.message
+                      : localizedStatus.desc}
                 </p>
               </div>
 

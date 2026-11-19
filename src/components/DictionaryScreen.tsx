@@ -8,6 +8,10 @@ import {
 } from '../types/dictionary';
 import { LANGUAGES, LANGUAGE_LIST } from '../data/languages';
 import { dictionaryDb } from '../services/dictionaryDatabase';
+import { ENGLISH_PACK_MANIFEST, isEnglishSqliteIntegrationEnabled } from '../config/englishDictionaryConfig';
+import { englishPackService, type EnglishPackStatus } from '../services/englishPackService';
+import { englishSqliteRepo } from '../services/englishSqliteRepository';
+import { searchEnglishStandardUnified } from '../services/englishSearchCoordinator';
 import {
   getUiCopy,
   formatText,
@@ -63,6 +67,115 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
   const [selectedLetter, setSelectedLetter] = useState<string>('all');
   const [isSwapping, setIsSwapping] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [englishPackStatus, setEnglishPackStatus] = useState<EnglishPackStatus>(() =>
+    englishPackService.getCachedStatus()
+  );
+  const [asyncEnglishResponse, setAsyncEnglishResponse] = useState<StandardSearchResponse | null>(null);
+  const [englishAvailableLetters, setEnglishAvailableLetters] = useState<string[] | null>(null);
+  const [isEnglishLoading, setIsEnglishLoading] = useState(false);
+  const [isLoadingMoreEnglish, setIsLoadingMoreEnglish] = useState(false);
+  const [englishRetryTick, setEnglishRetryTick] = useState(0);
+
+  useEffect(() => {
+    return englishPackService.subscribeStatus((status) => {
+      setEnglishPackStatus(status);
+    });
+  }, []);
+
+  const useEnglishSqlitePath =
+    dictionaryMode === 'standard' && sourceLang === 'en' && isEnglishSqliteIntegrationEnabled();
+
+  useEffect(() => {
+    if (!useEnglishSqlitePath || !englishSqliteRepo.isPackActive()) {
+      setEnglishAvailableLetters(null);
+      return;
+    }
+    let cancelled = false;
+    englishSqliteRepo
+      .getAvailableLetters()
+      .then((letters) => {
+        if (!cancelled && letters.length > 0) setEnglishAvailableLetters(letters);
+      })
+      .catch(() => {
+        if (!cancelled) setEnglishAvailableLetters(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [useEnglishSqlitePath, englishPackStatus.installed]);
+
+  useEffect(() => {
+    if (!useEnglishSqlitePath) {
+      setAsyncEnglishResponse(null);
+      setIsEnglishLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsEnglishLoading(true);
+    searchEnglishStandardUnified(query, {
+      partOfSpeech: selectedPartOfSpeech,
+      letter: selectedLetter,
+      limit: 20,
+      offset: 0,
+    })
+      .then((res) => {
+        if (!cancelled) {
+          setAsyncEnglishResponse(res);
+          setIsEnglishLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setAsyncEnglishResponse({
+            status: 'error',
+            language: 'en',
+            query,
+            results: [],
+            engineSource: 'sqlite-en',
+            message: err instanceof Error ? err.message : 'Unable to query English SQLite dictionary.',
+          });
+          setIsEnglishLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    useEnglishSqlitePath,
+    query,
+    selectedPartOfSpeech,
+    selectedLetter,
+    englishPackStatus.installed,
+    englishRetryTick,
+  ]);
+
+  const handleLoadMoreEnglish = async () => {
+    if (!asyncEnglishResponse?.hasMore || isLoadingMoreEnglish) return;
+    setIsLoadingMoreEnglish(true);
+    try {
+      const nextOffset = asyncEnglishResponse.results.length;
+      const nextPage = await searchEnglishStandardUnified(query, {
+        partOfSpeech: selectedPartOfSpeech,
+        letter: selectedLetter,
+        limit: 20,
+        offset: nextOffset,
+      });
+      setAsyncEnglishResponse((prev) => {
+        if (!prev) return nextPage;
+        const existingIds = new Set(prev.results.map((r) => r.entry.id));
+        const merged = [...prev.results, ...nextPage.results.filter((r) => !existingIds.has(r.entry.id))];
+        return {
+          ...nextPage,
+          results: merged,
+          hasMore: nextPage.hasMore,
+        };
+      });
+    } finally {
+      setIsLoadingMoreEnglish(false);
+    }
+  };
 
   useEffect(() => {
     if (initialQuery) {
@@ -111,6 +224,9 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
 
   // Letters available in the current source language dataset
   const availableLetters = useMemo(() => {
+    if (useEnglishSqlitePath && englishAvailableLetters && englishAvailableLetters.length > 0) {
+      return englishAvailableLetters;
+    }
     const entries = dictionaryDb.getEntriesByLanguage(sourceLang);
     const letters = new Set<string>();
     for (const e of entries) {
@@ -121,16 +237,20 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
       }
     }
     return Array.from(letters).sort((a, b) => a.localeCompare(b));
-  }, [sourceLang]);
+  }, [sourceLang, useEnglishSqlitePath, englishAvailableLetters]);
 
   // Execute Engine 1 (Standard) OR Engine 2 (Multilingual)
-  const standardResponse: StandardSearchResponse | null = useMemo(() => {
+  const syncStandardResponse: StandardSearchResponse | null = useMemo(() => {
     if (dictionaryMode !== 'standard') return null;
+    if (sourceLang === 'en' && isEnglishSqliteIntegrationEnabled()) return null;
     return dictionaryDb.searchStandard(query, sourceLang, {
       partOfSpeech: selectedPartOfSpeech,
       letter: selectedLetter,
     });
   }, [dictionaryMode, query, sourceLang, selectedPartOfSpeech, selectedLetter]);
+
+  const standardResponse: StandardSearchResponse | null =
+    useEnglishSqlitePath ? asyncEnglishResponse : syncStandardResponse;
 
   const multilingualResponse: MultilingualSearchResponse | null = useMemo(() => {
     if (dictionaryMode !== 'multilingual') return null;
@@ -419,8 +539,18 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
             })}
           </div>
 
-          <div className="text-xs text-slate-500 shrink-0 tabular-nums">
-            {activeCount} {activeCount === 1 ? copy.search.entrySingular : copy.search.entryPlural}
+          <div className="text-xs text-slate-500 shrink-0 tabular-nums flex items-center gap-2">
+            {dictionaryMode === 'standard' && standardResponse?.engineSource === 'sqlite-en' && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#EEF4F0] dark:bg-[#1F372C] text-[#204031] dark:text-[#7E9E88]">
+                Wiktionary
+              </span>
+            )}
+            <span>
+              {(standardResponse?.totalCount ?? activeCount).toLocaleString()}{' '}
+              {(standardResponse?.totalCount ?? activeCount) === 1
+                ? copy.search.entrySingular
+                : copy.search.entryPlural}
+            </span>
           </div>
         </div>
 
@@ -729,8 +859,32 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
             })
           )}
 
+          {/* PAGINATED LOAD MORE FOR ENGLISH SQLITE */}
+          {dictionaryMode === 'standard' &&
+            standardResponse?.engineSource === 'sqlite-en' &&
+            standardResponse.hasMore && (
+              <div className="pt-2 flex justify-center">
+                <button
+                  type="button"
+                  disabled={isLoadingMoreEnglish}
+                  onClick={handleLoadMoreEnglish}
+                  className="px-5 py-2.5 rounded-xl bg-white dark:bg-[#15231D] border border-slate-200 dark:border-slate-700 hover:border-[#204031] dark:hover:border-[#7E9E88] text-xs font-semibold text-[#204031] dark:text-[#7E9E88] shadow-xs cursor-pointer transition-all disabled:opacity-60"
+                >
+                  {isLoadingMoreEnglish
+                    ? 'Loading more entries...'
+                    : `Load more (${standardResponse.results.length.toLocaleString()} of ${(standardResponse.totalCount || 0).toLocaleString()})`}
+                </button>
+              </div>
+            )}
+
+          {isEnglishLoading && activeCount === 0 && (
+            <div className="py-10 text-center text-xs text-slate-500 dark:text-slate-400">
+              Querying offline English dictionary...
+            </div>
+          )}
+
           {/* EMPTY / FAILURE STATE */}
-          {activeCount === 0 && (
+          {!isEnglishLoading && activeCount === 0 && (
             <div className="py-12 px-4 text-center rounded-2xl bg-white dark:bg-[#15231D] border border-dashed border-slate-200 dark:border-slate-800 space-y-3">
               {activeStatus === 'language_not_installed' || activeStatus === 'error' ? (
                 <AlertCircle className="w-8 h-8 text-[#C47248] mx-auto" />
@@ -744,7 +898,11 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                 </h4>
 
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1 leading-relaxed">
-                  {localizedStatus.desc}
+                  {activeStatus === 'language_not_installed' && sourceLang === 'en' && standardResponse?.message
+                    ? standardResponse.message
+                    : activeStatus === 'error' && standardResponse?.message
+                      ? standardResponse.message
+                      : localizedStatus.desc}
                 </p>
               </div>
 
@@ -754,7 +912,19 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                   onClick={onNavigateToLibrary}
                   className="px-4 py-2 rounded-xl bg-[#1B382B] text-white text-xs font-semibold cursor-pointer hover:bg-[#142A20] transition-all"
                 >
-                  {copy.statuses.openLanguageLibrary}
+                  {sourceLang === 'en' && englishPackService.isNativeAndroid()
+                    ? `Install English Pack (${(ENGLISH_PACK_MANIFEST.compressedSizeBytes / (1024 * 1024)).toFixed(1)} MB)`
+                    : copy.statuses.openLanguageLibrary}
+                </button>
+              )}
+
+              {activeStatus === 'error' && useEnglishSqlitePath && (
+                <button
+                  type="button"
+                  onClick={() => setEnglishRetryTick((t) => t + 1)}
+                  className="px-4 py-2 rounded-xl bg-[#1B382B] text-white text-xs font-semibold cursor-pointer hover:bg-[#142A20] transition-all"
+                >
+                  Retry Query
                 </button>
               )}
 

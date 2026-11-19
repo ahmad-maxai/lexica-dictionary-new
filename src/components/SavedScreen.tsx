@@ -31,6 +31,7 @@ interface SavedScreenProps {
   onClearRecentSearches: () => void;
   onNavigateToDictionary: (term?: string) => void;
   targetLang: LanguageCode;
+  extraEntries?: WordEntry[];
 }
 
 export const SavedScreen: React.FC<SavedScreenProps> = ({
@@ -44,6 +45,7 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
   onClearRecentSearches,
   onNavigateToDictionary,
   targetLang,
+  extraEntries = [],
 }) => {
   const [activeTab, setActiveTab] = useState<'words' | 'collections' | 'history'>('words');
   const [selectedLanguageFilter, setSelectedLanguageFilter] = useState<string>('all');
@@ -54,7 +56,15 @@ export const SavedScreen: React.FC<SavedScreenProps> = ({
   const copy = getUiCopy(interfaceLang);
 
   // Get full word objects for saved IDs
-  const savedEntries = dictionaryDb.getAllEntries().filter((entry) => savedWordIds.includes(entry.id));
+  const extraById = new Map(extraEntries.map((e) => [e.id, e]));
+  const starterSaved = dictionaryDb.getAllEntries().filter((entry) => savedWordIds.includes(entry.id));
+  const savedEntries = [
+    ...starterSaved,
+    ...savedWordIds
+      .map((id) => extraById.get(id))
+      .filter((entry): entry is WordEntry => Boolean(entry))
+      .filter((entry) => !starterSaved.some((s) => s.id === entry.id)),
+  ];
 
   const filteredSavedEntries = savedEntries.filter((entry) => {
     if (selectedLanguageFilter === 'all') return true;

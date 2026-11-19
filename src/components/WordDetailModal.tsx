@@ -54,8 +54,11 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
   const copy = getUiCopy(interfaceLang);
   const sourceMeta = LANGUAGES[word.sourceLang];
   const sourceName = getLangName(sourceMeta.code, interfaceLang);
-  const senses = dictionaryDb.getEntrySenses(word.id);
-  const morphologicalForms = dictionaryDb.getEntryMorphology(word.id);
+  const senses = word.senses && word.senses.length > 0 ? word.senses : dictionaryDb.getEntrySenses(word.id);
+  const morphologicalForms =
+    word.morphologicalForms && word.morphologicalForms.length > 0
+      ? word.morphologicalForms
+      : dictionaryDb.getEntryMorphology(word.id);
   const translationLinks = dictionaryDb.getEntryTranslationLinks(word.id);
 
   // Group translation links by target language
@@ -188,9 +191,11 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 
             {/* Pronunciation & Grammatical Metadata */}
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-400 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-              <span dir="ltr" className="font-mono bg-slate-100 dark:bg-slate-800/80 px-2 py-0.5 rounded text-slate-700 dark:text-slate-300">
-                {word.ipa}
-              </span>
+              {word.ipa && (
+                <span dir="ltr" className="font-mono bg-slate-100 dark:bg-slate-800/80 px-2 py-0.5 rounded text-slate-700 dark:text-slate-300">
+                  {word.ipa}
+                </span>
+              )}
               {word.audioPhoneticText && (
                 <>
                   <span>·</span>
@@ -217,6 +222,23 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
               )}
             </div>
 
+            {/* Dialect Pronunciation Variants (from Wiktionary IPA metadata) */}
+            {word.allIpas && word.allIpas.length > 1 && (
+              <div className="mt-2.5 flex flex-wrap gap-1.5" dir="ltr">
+                {word.allIpas.slice(0, 6).map((variant, idx) => (
+                  <span
+                    key={`${variant.ipa}-${idx}`}
+                    className="text-[11px] font-mono px-2 py-0.5 rounded bg-[#F5F2EC] dark:bg-[#13221B] text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-slate-800"
+                  >
+                    {variant.tags && variant.tags.length > 0
+                      ? `${variant.tags.map((t) => t.replace(/-/g, ' ')).join(', ')}: `
+                      : ''}
+                    {variant.ipa}
+                  </span>
+                ))}
+              </div>
+            )}
+
             {/* Numbered Word Senses & Usage Notes */}
             <div className="mt-4 space-y-3">
               {senses.length > 0 ? (
@@ -242,6 +264,12 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                       )}
                       <span>{sense.definition}</span>
                     </div>
+
+                    {sense.register && (
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 italic">
+                        {sense.register}
+                      </p>
+                    )}
 
                     {sense.usageNote && (
                       <p className="text-xs text-[#C47248] dark:text-[#E28D70] leading-relaxed">
@@ -441,9 +469,11 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                       “{ex.sourceText}”
                     </div>
 
-                    <div className="text-xs text-slate-600 dark:text-slate-400 mt-1 italic">
-                      “{ex.targetText}”
-                    </div>
+                    {ex.targetText && (
+                      <div className="text-xs text-slate-600 dark:text-slate-400 mt-1 italic">
+                        “{ex.targetText}”
+                      </div>
+                    )}
 
                     {ex.culturalContext && (
                       <div className="text-[11px] text-[#C47248] dark:text-[#E28D70] mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-1.5">

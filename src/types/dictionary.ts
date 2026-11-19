@@ -110,6 +110,11 @@ export interface TranslationEquivalent {
   verifiedOffline: boolean;
 }
 
+export interface PronunciationVariant {
+  ipa: string;
+  tags: string[];
+}
+
 export interface WordEntry {
   id: string;
   sourceLang: LanguageCode;
@@ -119,6 +124,8 @@ export interface WordEntry {
     text: string;
   } | null;
   ipa: string;
+  allIpas?: PronunciationVariant[];
+  isMonolingualSqlite?: boolean;
   audioPhoneticText?: string | null;
   partOfSpeech: string;
   genderOrClass?: string | null; // e.g. "masculine", "feminine", "noun class"
@@ -170,6 +177,11 @@ export interface StandardSearchResponse {
   query: string;
   results: StandardSearchResult[];
   message?: string;
+  totalCount?: number;
+  hasMore?: boolean;
+  offset?: number;
+  limit?: number;
+  engineSource?: 'sqlite-en' | 'starter-corpus' | 'web-preview-fallback';
 }
 
 export interface MultilingualSenseMatch {

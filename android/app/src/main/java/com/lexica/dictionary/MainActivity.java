@@ -10,6 +10,7 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        registerPlugin(EnglishPackInstallerPlugin.class);
         super.onCreate(savedInstanceState);
 
         boolean isNightMode = (getResources().getConfiguration().uiMode

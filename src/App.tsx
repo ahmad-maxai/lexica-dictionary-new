@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { DictionaryMode, LanguageCode, WordEntry, Collection } from './types/dictionary';
 import { StorageService } from './services/storageService';
 import { dictionaryDb } from './services/dictionaryDatabase';
+import { englishPackService } from './services/englishPackService';
+import { englishSqliteRepo } from './services/englishSqliteRepository';
 import { OnboardingScreen } from './components/OnboardingScreen';
 import { Navigation, NavigationTab } from './components/Navigation';
 import { HomeScreen } from './components/HomeScreen';
@@ -19,6 +21,36 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [dictionaryInitialQuery, setDictionaryInitialQuery] = useState('');
   const [collections, setCollections] = useState<Collection[]>(() => StorageService.getCollections());
+  const [savedSqliteEntries, setSavedSqliteEntries] = useState<WordEntry[]>([]);
+  const [englishPackVersionTick, setEnglishPackVersionTick] = useState(0);
+
+  useEffect(() => {
+    const unsub = englishPackService.subscribeStatus(() => {
+      setEnglishPackVersionTick((t) => t + 1);
+    });
+    void englishPackService.refreshStatus();
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const sqliteIds = preferences.savedWordIds.filter((id) => id.startsWith('en-sqlite-'));
+    if (sqliteIds.length === 0 || !englishSqliteRepo.isPackActive()) {
+      setSavedSqliteEntries([]);
+      return;
+    }
+    englishSqliteRepo
+      .getEntriesByIds(sqliteIds)
+      .then((entries) => {
+        if (!cancelled) setSavedSqliteEntries(entries);
+      })
+      .catch(() => {
+        if (!cancelled) setSavedSqliteEntries([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [preferences.savedWordIds, englishPackVersionTick]);
 
   // Synchronize dark mode class, theme color, document language & RTL/LTR direction
   useEffect(() => {
@@ -222,6 +254,7 @@ export default function App() {
             onClearRecentSearches={handleClearRecentSearches}
             onNavigateToDictionary={handleNavigateToDictionary}
             targetLang={preferences.targetLang}
+            extraEntries={savedSqliteEntries}
           />
         )}
 
@@ -246,6 +279,12 @@ export default function App() {
           onToggleSave={handleToggleSaveWord}
           onClose={() => setSelectedWord(null)}
           onSelectWordById={(id) => {
+            if (id.startsWith('en-sqlite-')) {
+              void englishSqliteRepo.getEntryById(id).then((found) => {
+                if (found) setSelectedWord(found);
+              });
+              return;
+            }
             const found = dictionaryDb.getEntryById(id);
             if (found) setSelectedWord(found);
           }}
