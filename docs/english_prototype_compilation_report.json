@@ -1,0 +1,70 @@
+{
+  "prototype_version": "0.1.0",
+  "source_dataset": {
+    "name": "Kaikki.org English Wiktionary JSONL (Wiktextract postprocessed)",
+    "url": "https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl.gz",
+    "underlying_wiktionary_dump_date": "2026-10-01",
+    "kaikki_extraction_date": "2026-10-30",
+    "kaikki_http_last_modified": "Fri, 30 Oct 2026 23:09:26 GMT",
+    "wiktextract_commit": "19f9a3006a405fb7bfb40193dca41c7117a009a5",
+    "wikitextprocessor_commit": "6f96ddf5f3466707f1869fe6618390fd77dfd109",
+    "retrieval_date": "2026-11-19",
+    "license": "CC BY-SA 4.0 / GFDL",
+    "source_size_bytes": 534186395,
+    "source_sha256": "4d03b6cba283744756c57ff661c2c6cbfe34fcf8ff513a966576cf7d97e91a99"
+  },
+  "build_environment": {
+    "python_version": "3.11.2",
+    "sqlite_version": "3.40.1",
+    "external_python_dependencies": "None (Python standard library only: argparse, gzip, json, os, sqlite3, sys, time, typing)"
+  },
+  "reproduction_commands": [
+    "curl -L --fail --retry 3 -o /tmp/kaikki-English.jsonl.gz https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl.gz",
+    "python3 scripts/compile_english_dictionary.py --source /tmp/kaikki-English.jsonl.gz --output packs/lexica_english.db --limit 75000",
+    "python3 scripts/verify_english_database.py --db packs/lexica_english.db",
+    "gzip -9 -c packs/lexica_english.db > packs/lexica_english.db.gz"
+  ],
+  "compilation_metrics": {
+    "lines_scanned": 75049,
+    "accepted_entries": 75000,
+    "distinct_headwords_case_insensitive": 45317,
+    "distinct_headwords_case_sensitive": 47728,
+    "total_senses": 190672,
+    "total_word_forms": 134837,
+    "fts5_rows": 75000,
+    "records_with_ipa": 50902,
+    "records_with_examples": 46585,
+    "records_with_forms": 56687,
+    "rejected_non_english": 0,
+    "rejected_no_definitions": 49,
+    "rejected_malformed": 0,
+    "rejected_redirect_only": 0,
+    "elapsed_seconds": 24.42,
+    "integrity_check": "PASS",
+    "foreign_key_check": "PASS"
+  },
+  "artifacts": {
+    "compile_script": {
+      "path": "scripts/compile_english_dictionary.py",
+      "size_bytes": 17474,
+      "sha256": "01b39a71049eab686db62653f8dc47d2a9c8343b45c68d25886f6d808d011668"
+    },
+    "verify_script": {
+      "path": "scripts/verify_english_database.py",
+      "size_bytes": 11821,
+      "sha256": "f7dd144790928c6410aeb60c0e2e8a68abe4b5e88cf900ebbab5d678341893f8"
+    },
+    "sqlite_database": {
+      "filename": "lexica_english.db",
+      "size_bytes": 165920768,
+      "size_mib": 158.23,
+      "sha256": "443604e61a94cf26a087771e43604d390fff2f5f03c0ba6dbd2b0f0bd48ff305"
+    },
+    "compressed_sqlite_database": {
+      "filename": "lexica_english.db.gz",
+      "size_bytes": 58199556,
+      "size_mib": 55.5,
+      "sha256": "43c98048c6188c59fc2038f536a3e6847cf8912fac692d10ab2cbf07774f6acf"
+    }
+  }
+}

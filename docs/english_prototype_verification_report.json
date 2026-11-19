@@ -1,0 +1,222 @@
+{
+  "database_path": "/app/applet/packs/lexica_english.db",
+  "database_size_bytes": 165920768,
+  "database_size_mb": 158.23,
+  "target_word_tests": {
+    "epistemology": {
+      "status": "FOUND",
+      "entries_count": 1,
+      "total_senses": 2,
+      "parts_of_speech": [
+        "noun"
+      ],
+      "has_ipa": true,
+      "has_examples": true,
+      "sample_def": "The branch of philosophy dealing with the study of knowledge; the theory of knowledge, asking such questions as \"What is knowledge?\", \"How is knowledge acquired?\", \"What do people know?\", \"How do we know what we know?\", \"How do we know it is true?\", and so on."
+    },
+    "photosynthesis": {
+      "status": "FOUND",
+      "entries_count": 1,
+      "total_senses": 2,
+      "parts_of_speech": [
+        "noun"
+      ],
+      "has_ipa": true,
+      "has_examples": true,
+      "sample_def": "Principally, oxygenic photosynthesis, any process by which plants and algae convert water and carbon dioxide into carbohydrates and waste oxygen using solar energy."
+    },
+    "serendipity": {
+      "status": "FOUND",
+      "entries_count": 1,
+      "total_senses": 3,
+      "parts_of_speech": [
+        "noun"
+      ],
+      "has_ipa": true,
+      "has_examples": true,
+      "sample_def": "The phenomenon of making an unplanned, fortunate discovery through a combination of unexpected circumstances and insightful recognition."
+    },
+    "ubiquitous": {
+      "status": "FOUND",
+      "entries_count": 1,
+      "total_senses": 3,
+      "parts_of_speech": [
+        "adj"
+      ],
+      "has_ipa": true,
+      "has_examples": true,
+      "sample_def": "Being everywhere at once: omnipresent."
+    },
+    "dictionary": {
+      "status": "FOUND",
+      "entries_count": 2,
+      "total_senses": 9,
+      "parts_of_speech": [
+        "noun",
+        "verb"
+      ],
+      "has_ipa": true,
+      "has_examples": true,
+      "sample_def": "A reference work listing words or names from one or more languages, usually ordered alphabetically, explaining each term's meanings or senses, often also containing information on its etymology, pronunciation, usage, semantic relations, translations, as well as other relevant information."
+    },
+    "run": {
+      "status": "FOUND",
+      "entries_count": 4,
+      "total_senses": 118,
+      "parts_of_speech": [
+        "verb",
+        "noun",
+        "adj",
+        "verb"
+      ],
+      "has_ipa": true,
+      "has_examples": true,
+      "sample_def": "To move forward quickly upon two feet by alternately making a short jump off either foot."
+    },
+    "light": {
+      "status": "FOUND",
+      "entries_count": 8,
+      "total_senses": 63,
+      "parts_of_speech": [
+        "noun",
+        "verb",
+        "adj",
+        "adj",
+        "adv",
+        "noun",
+        "verb",
+        "verb"
+      ],
+      "has_ipa": true,
+      "has_examples": true,
+      "sample_def": "Electromagnetic radiation in the wavelength range visible to the human eye (about 400\u2013750 nanometers): visible light."
+    }
+  },
+  "prefix_search_test": {
+    "prefix": "epistem%",
+    "count_returned": 1,
+    "sample_words": [
+      "epistemology"
+    ],
+    "pass": true
+  },
+  "case_insensitivity_test": {
+    "EPISTEMOLOGY": {
+      "matched_headword": "epistemology",
+      "pass": true
+    },
+    "pHotoSynthesis": {
+      "matched_headword": "photosynthesis",
+      "pass": true
+    },
+    "SeReNdIpItY": {
+      "matched_headword": "serendipity",
+      "pass": true
+    },
+    "UBIQUITOUS": {
+      "matched_headword": "ubiquitous",
+      "pass": true
+    }
+  },
+  "multi_pos_test": {
+    "run": {
+      "parts_of_speech_found": [
+        "verb",
+        "noun",
+        "adj",
+        "verb"
+      ],
+      "distinct_pos_count": 3,
+      "pass": true
+    },
+    "light": {
+      "parts_of_speech_found": [
+        "noun",
+        "verb",
+        "adj",
+        "adj",
+        "adv",
+        "noun",
+        "verb",
+        "verb"
+      ],
+      "distinct_pos_count": 4,
+      "pass": true
+    }
+  },
+  "missing_word_test": {
+    "query": "xyznonexistentlexicaword999",
+    "results_count": 0,
+    "pass": true
+  },
+  "pagination_test": {
+    "page1_ids": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "page2_ids": [
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "disjoint": true,
+    "pass": true
+  },
+  "fts5_search_test": {
+    "query": "knowledge AND branch",
+    "count_returned": 5,
+    "sample_hits": [
+      {
+        "entry_id": 9,
+        "headword": "encyclopedia",
+        "pos": "noun",
+        "snippet": "...see Etymology); a comprehensive summary of <b>knowledge</b>, or of a <b>branch</b> thereof."
+      },
+      {
+        "entry_id": 165,
+        "headword": "craft",
+        "pos": "noun",
+        "snippet": "...schools, scholarship; a <b>branch</b> of learning or <b>knowledge</b>, a science, especially one..."
+      },
+      {
+        "entry_id": 6263,
+        "headword": "science",
+        "pos": "noun",
+        "snippet": "A particular discipline or <b>branch</b> of <b>knowledge</b> that is natural, measurable or..."
+      },
+      {
+        "entry_id": 7455,
+        "headword": "branch",
+        "pos": "noun",
+        "snippet": "...something that divides like the <b>branch</b> of a tree. | A creek or..."
+      },
+      {
+        "entry_id": 8874,
+        "headword": "knowledge",
+        "pos": "noun",
+        "snippet": "...understanding of a particular skill, <b>branch</b> of learning etc. | Justified true belief..."
+      }
+    ],
+    "pass": true
+  },
+  "reopen_test": {
+    "reopened_mode": "read_only_uri",
+    "queried_word": "serendipity",
+    "result": "serendipity",
+    "pass": true
+  },
+  "performance": {
+    "queries_executed": 1000,
+    "avg_latency_ms": 0.019,
+    "p95_latency_ms": 0.024,
+    "p99_latency_ms": 0.06,
+    "process_memory_before_mb": 14.68,
+    "process_memory_after_mb": 18.62,
+    "memory_delta_mb": 3.94
+  }
+}

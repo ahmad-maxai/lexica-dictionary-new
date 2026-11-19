@@ -13,3 +13,9 @@ android/app/build/
 android/build/
 android/local.properties
 public/lexica-debug.apk
+
+# Large compiled dictionary packs (distributed via GitHub Releases)
+packs/*.db
+packs/*.db.gz
+packs/*.sqlite
+packs/*.sqlite.gz
