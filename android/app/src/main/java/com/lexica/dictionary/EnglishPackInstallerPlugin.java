@@ -1,34 +1,48 @@
 package com.lexica.dictionary;
 
+import android.app.Activity;
 import android.app.ActivityManager;
 import android.content.Context;
+import android.content.Intent;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import android.net.Uri;
 import android.os.Debug;
 import android.os.StatFs;
+import androidx.activity.result.ActivityResult;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.BufferedInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
-import java.util.regex.Pattern;
+import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
+import java.util.zip.Deflater;
 import java.util.zip.GZIPInputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 import org.json.JSONObject;
 
 @CapacitorPlugin(name = "EnglishPackInstaller")
@@ -40,6 +54,14 @@ public class EnglishPackInstallerPlugin extends Plugin {
     private static final String BACKUP_DB_NAME = "lexica_englishSQLite.db.bak";
     private static final String PART_GZ_NAME = "lexica_english.db.gz.part";
     private static final String META_FILE_NAME = "lexica_english.db.gz.meta.json";
+
+    private static final String BACKUP_ENTRY_MANIFEST = "manifest.json";
+    private static final String BACKUP_ENTRY_STATE = "bundled_state.json";
+    private static final String BACKUP_ENTRY_ENGLISH_DB = "packs/lexica_englishSQLite.db";
+    private static final String BACKUP_FORMAT = "lexica-offline-backup";
+    private static final int BACKUP_FORMAT_VERSION = 1;
+    private static final int MAX_JSON_ENTRY_BYTES = 8 * 1024 * 1024;
+
     private static final long STORAGE_SAFETY_MARGIN_BYTES = 20L * 1024L * 1024L;
     private static final int IO_BUFFER_SIZE = 32768;
     private static final int MAX_REDIRECTS = 8;
@@ -48,6 +70,11 @@ public class EnglishPackInstallerPlugin extends Plugin {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean installInProgress = new AtomicBoolean(false);
     private final AtomicBoolean cancelRequested = new AtomicBoolean(false);
+    private final AtomicBoolean backupInProgress = new AtomicBoolean(false);
+
+    private volatile String pendingExportStateJson = "";
+    private volatile boolean pendingExportIncludeEnglish = true;
+    private volatile boolean pendingImportReplaceExisting = false;
 
     private File getPacksDir() {
         File dir = new File(getContext().getNoBackupFilesDir(), PACKS_SUBDIR);
@@ -84,6 +111,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
                     try {
                         JSObject meta = readDbSummary(activeDb);
                         res.put("datasetVersion", meta.optString("pack_version", ""));
+                        res.put("schemaVersion", meta.optInt("schema_version", 1));
                         res.put("acceptedEntries", meta.optInt("accepted_entries", 0));
                         res.put("distinctHeadwords", meta.optInt("distinct_headwords", 0));
                         res.put("totalSenses", meta.optInt("total_senses", 0));
@@ -108,6 +136,8 @@ public class EnglishPackInstallerPlugin extends Plugin {
         String downloadUrl = headerOrEmpty(call.getString("url", ""));
         String compressedSha256 = headerOrEmpty(call.getString("compressedSha256", ""));
         String uncompressedSha256 = headerOrEmpty(call.getString("uncompressedSha256", ""));
+        String expectedPackVersion = headerOrEmpty(call.getString("packVersion", ""));
+        boolean forceReinstall = Boolean.TRUE.equals(call.getBoolean("forceReinstall", false));
         // Note: Capacitor PluginCall.getLong() returns defaultValue when org.json parses <=2GB integers as Integer.
         long compressedSizeBytes = extractPositiveLong(call, "compressedSizeBytes");
         long uncompressedSizeBytes = extractPositiveLong(call, "uncompressedSizeBytes");
@@ -136,6 +166,11 @@ public class EnglishPackInstallerPlugin extends Plugin {
             return;
         }
 
+        if (backupInProgress.get()) {
+            call.reject("BACKUP_IN_PROGRESS: Wait for the active backup/restore operation to finish.", "BACKUP_IN_PROGRESS");
+            return;
+        }
+
         if (!installInProgress.compareAndSet(false, true)) {
             call.reject("INSTALL_IN_PROGRESS: Another English pack installation is already running.", "INSTALL_IN_PROGRESS");
             return;
@@ -151,6 +186,34 @@ public class EnglishPackInstallerPlugin extends Plugin {
             File metaFile = new File(dir, META_FILE_NAME);
 
             try {
+                // Step 0: Duplicate-version download guard — reuse verified local DB without network I/O
+                if (!forceReinstall
+                        && activeDb.exists()
+                        && activeDb.length() == uncompressedSizeBytes
+                        && !expectedPackVersion.isEmpty()) {
+                    try {
+                        JSObject existingSummary = validateStagingDatabase(activeDb);
+                        String installedVersion = existingSummary.optString("pack_version", "");
+                        int installedEntries = existingSummary.optInt("accepted_entries", 0);
+                        if (expectedPackVersion.equals(installedVersion) && installedEntries > 0) {
+                            JSObject result = new JSObject();
+                            result.put("installed", true);
+                            result.put("alreadyInstalled", true);
+                            result.put("dbPath", activeDb.getAbsolutePath());
+                            result.put("dbSizeBytes", activeDb.length());
+                            result.put("datasetVersion", installedVersion);
+                            result.put("schemaVersion", existingSummary.optInt("schema_version", 1));
+                            result.put("acceptedEntries", installedEntries);
+                            result.put("distinctHeadwords", existingSummary.optInt("distinct_headwords", 0));
+                            result.put("totalSenses", existingSummary.optInt("total_senses", 0));
+                            call.resolve(result);
+                            return;
+                        }
+                    } catch (Exception ignored) {
+                        // Existing DB failed verification or differed; proceed cleanly to staged upgrade/reinstall.
+                    }
+                }
+
                 // Step 1: Check available storage before starting/resuming
                 long existingPartBytes = partGz.exists() ? partGz.length() : 0L;
                 long remainingDownload = Math.max(0L, compressedSizeBytes - existingPartBytes);
@@ -187,11 +250,8 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 emitProgress("verifying_archive", compressedSizeBytes, compressedSizeBytes, "Verifying compressed archive checksum...");
                 String actualCompressedSha = computeFileSha256(partGz);
                 if (!actualCompressedSha.equalsIgnoreCase(compressedSha256)) {
-                    // Corrupt download — clean partial files, keep any existing activeDb untouched
-                    //noinspection ResultOfMethodCallIgnored
-                    partGz.delete();
-                    //noinspection ResultOfMethodCallIgnored
-                    metaFile.delete();
+                    deleteIfExists(partGz);
+                    deleteIfExists(metaFile);
                     call.reject(
                         "Downloaded archive SHA-256 verification failed. Expected " + compressedSha256 + " but got " + actualCompressedSha,
                         "CHECKSUM_MISMATCH_COMPRESSED"
@@ -200,10 +260,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 }
 
                 // Step 4: Native streaming gunzip directly to staging file + compute uncompressed SHA-256
-                if (tmpDb.exists()) {
-                    //noinspection ResultOfMethodCallIgnored
-                    tmpDb.delete();
-                }
+                deleteIfExists(tmpDb);
                 emitProgress("extracting", 0L, uncompressedSizeBytes, "Extracting SQLite dictionary...");
                 String actualUncompressedSha;
                 try {
@@ -242,44 +299,19 @@ public class EnglishPackInstallerPlugin extends Plugin {
 
                 // Step 7: Atomic swap preserving activeDb until tmpDb replaces it cleanly
                 emitProgress("activating", uncompressedSizeBytes, uncompressedSizeBytes, "Activating offline English dictionary...");
-                boolean hadExisting = activeDb.exists();
-                if (bakDb.exists()) {
-                    //noinspection ResultOfMethodCallIgnored
-                    bakDb.delete();
-                }
-                if (hadExisting && !activeDb.renameTo(bakDb)) {
-                    //noinspection ResultOfMethodCallIgnored
-                    tmpDb.delete();
-                    call.reject("Failed to stage existing database backup before update.", "ACTIVATION_FAILED");
-                    return;
-                }
-                if (!tmpDb.renameTo(activeDb)) {
-                    if (hadExisting && bakDb.exists()) {
-                        // Restore previous working DB immediately
-                        //noinspection ResultOfMethodCallIgnored
-                        bakDb.renameTo(activeDb);
-                    }
-                    //noinspection ResultOfMethodCallIgnored
-                    tmpDb.delete();
-                    call.reject("Failed to activate verified English SQLite database.", "ACTIVATION_FAILED");
-                    return;
-                }
+                atomicReplaceDatabase(tmpDb, activeDb, bakDb);
 
                 // Clean up temporary/compressed staging files after confirmed activation
-                if (bakDb.exists()) {
-                    //noinspection ResultOfMethodCallIgnored
-                    bakDb.delete();
-                }
-                //noinspection ResultOfMethodCallIgnored
-                partGz.delete();
-                //noinspection ResultOfMethodCallIgnored
-                metaFile.delete();
+                deleteIfExists(partGz);
+                deleteIfExists(metaFile);
 
                 JSObject result = new JSObject();
                 result.put("installed", true);
+                result.put("alreadyInstalled", false);
                 result.put("dbPath", activeDb.getAbsolutePath());
                 result.put("dbSizeBytes", activeDb.length());
                 result.put("datasetVersion", dbSummary.optString("pack_version", ""));
+                result.put("schemaVersion", dbSummary.optInt("schema_version", 1));
                 result.put("acceptedEntries", dbSummary.optInt("accepted_entries", 0));
                 result.put("distinctHeadwords", dbSummary.optInt("distinct_headwords", 0));
                 result.put("totalSenses", dbSummary.optInt("total_senses", 0));
@@ -287,10 +319,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
             } catch (CancelledException ce) {
                 call.reject("Download paused. Partial file kept for safe resume.", "DOWNLOAD_CANCELLED");
             } catch (Exception e) {
-                if (tmpDb.exists()) {
-                    //noinspection ResultOfMethodCallIgnored
-                    tmpDb.delete();
-                }
+                deleteIfExists(tmpDb);
                 call.reject("PACK_INSTALL_FAILED: " + e.getMessage(), "PACK_INSTALL_FAILED", e);
             } finally {
                 installInProgress.set(false);
@@ -308,8 +337,8 @@ public class EnglishPackInstallerPlugin extends Plugin {
 
     @PluginMethod
     public void removePack(PluginCall call) {
-        if (installInProgress.get()) {
-            call.reject("Cannot remove pack while installation is active.", "INSTALL_IN_PROGRESS");
+        if (installInProgress.get() || backupInProgress.get()) {
+            call.reject("Cannot remove pack while installation or backup is active.", "INSTALL_IN_PROGRESS");
             return;
         }
         executor.execute(() -> {
@@ -342,6 +371,11 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 JSObject summary = validateStagingDatabase(activeDb);
                 summary.put("dbPath", activeDb.getAbsolutePath());
                 summary.put("dbSizeBytes", activeDb.length());
+                summary.put("datasetVersion", summary.optString("pack_version", ""));
+                summary.put("schemaVersion", summary.optInt("schema_version", 1));
+                summary.put("acceptedEntries", summary.optInt("accepted_entries", 0));
+                summary.put("distinctHeadwords", summary.optInt("distinct_headwords", 0));
+                summary.put("totalSenses", summary.optInt("total_senses", 0));
                 call.resolve(summary);
             } catch (Exception e) {
                 call.reject("INTEGRITY_CHECK_FAILED: " + e.getMessage(), "SQLITE_INTEGRITY_FAILED", e);
@@ -371,8 +405,472 @@ public class EnglishPackInstallerPlugin extends Plugin {
         }
     }
 
+    /**
+     * Phase 5: User-controlled offline backup export using Android Storage Access Framework (ACTION_CREATE_DOCUMENT).
+     * Creates a single compressed .lexicabackup ZIP containing bundled_state.json, optional packs/lexica_englishSQLite.db,
+     * and manifest.json with exact byte counts and SHA-256 checksums.
+     */
+    @PluginMethod
+    public void exportBackup(PluginCall call) {
+        String bundledStateJson = call.getString("bundledStateJson", "");
+        if (bundledStateJson == null || bundledStateJson.trim().isEmpty()) {
+            call.reject("BACKUP_INVALID_PAYLOAD: Missing bundled dictionary state payload.", "BACKUP_INVALID_PAYLOAD");
+            return;
+        }
+        boolean includeEnglishPack = Boolean.TRUE.equals(call.getBoolean("includeEnglishPack", true));
+        String suggestedFileName = headerOrEmpty(call.getString("suggestedFileName", ""));
+        if (suggestedFileName.isEmpty()) {
+            SimpleDateFormat fmt = new SimpleDateFormat("yyyyMMdd", Locale.US);
+            fmt.setTimeZone(TimeZone.getTimeZone("UTC"));
+            suggestedFileName = "lexica-backup-" + fmt.format(new Date()) + ".lexicabackup";
+        }
+
+        if (installInProgress.get()) {
+            call.reject("INSTALL_IN_PROGRESS: Wait for the English pack download to finish before exporting.", "INSTALL_IN_PROGRESS");
+            return;
+        }
+        if (!backupInProgress.compareAndSet(false, true)) {
+            call.reject("BACKUP_IN_PROGRESS: Another backup operation is already in progress.", "BACKUP_IN_PROGRESS");
+            return;
+        }
+
+        pendingExportStateJson = bundledStateJson;
+        pendingExportIncludeEnglish = includeEnglishPack;
+
+        try {
+            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("application/zip");
+            intent.putExtra(Intent.EXTRA_TITLE, suggestedFileName);
+            startActivityForResult(call, intent, "handleExportBackupResult");
+        } catch (Exception e) {
+            backupInProgress.set(false);
+            call.reject("BACKUP_PICKER_FAILED: " + e.getMessage(), "BACKUP_PICKER_FAILED", e);
+        }
+    }
+
+    @ActivityCallback
+    private void handleExportBackupResult(PluginCall call, ActivityResult result) {
+        if (call == null) {
+            backupInProgress.set(false);
+            return;
+        }
+        if (result == null
+                || result.getResultCode() != Activity.RESULT_OK
+                || result.getData() == null
+                || result.getData().getData() == null) {
+            backupInProgress.set(false);
+            call.reject("Backup export cancelled.", "BACKUP_CANCELLED");
+            return;
+        }
+
+        final Uri targetUri = result.getData().getData();
+        final String stateJson = pendingExportStateJson;
+        final boolean includeEnglishRequested = pendingExportIncludeEnglish;
+
+        executor.execute(() -> {
+            try {
+                File dir = getPacksDir();
+                File activeDb = new File(dir, ACTIVE_DB_NAME);
+                boolean includeEnglish = includeEnglishRequested && activeDb.exists() && activeDb.length() > 0;
+
+                JSObject dbSummary = null;
+                long dbTotalBytes = 0L;
+                if (includeEnglish) {
+                    emitProgress("exporting_backup", 0L, activeDb.length(), "Verifying installed SQLite pack before export...");
+                    dbSummary = validateStagingDatabase(activeDb);
+                    dbTotalBytes = activeDb.length();
+                }
+
+                byte[] stateBytes = stateJson.getBytes(StandardCharsets.UTF_8);
+                String stateSha256 = computeBytesSha256(stateBytes);
+
+                long progressTotal = Math.max(1L, dbTotalBytes + stateBytes.length);
+                emitProgress("exporting_backup", 0L, progressTotal, "Writing offline backup archive...");
+
+                String dbSha256 = "";
+                try (OutputStream rawOut = openDocumentOutputStream(targetUri);
+                     ZipOutputStream zos = new ZipOutputStream(rawOut)) {
+                    zos.setLevel(Deflater.BEST_SPEED);
+
+                    // 1. Write bundled_state.json
+                    ZipEntry stateEntry = new ZipEntry(BACKUP_ENTRY_STATE);
+                    zos.putNextEntry(stateEntry);
+                    zos.write(stateBytes);
+                    zos.closeEntry();
+
+                    // 2. Stream active English SQLite DB once while hashing on-the-fly
+                    if (includeEnglish) {
+                        ZipEntry dbEntry = new ZipEntry(BACKUP_ENTRY_ENGLISH_DB);
+                        zos.putNextEntry(dbEntry);
+
+                        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                        byte[] buf = new byte[IO_BUFFER_SIZE];
+                        long written = 0L;
+                        long lastEmitMs = 0L;
+
+                        try (InputStream in = new BufferedInputStream(new FileInputStream(activeDb), IO_BUFFER_SIZE)) {
+                            int n;
+                            while ((n = in.read(buf)) != -1) {
+                                digest.update(buf, 0, n);
+                                zos.write(buf, 0, n);
+                                written += n;
+                                long now = System.currentTimeMillis();
+                                if (now - lastEmitMs >= 200 || written >= dbTotalBytes) {
+                                    lastEmitMs = now;
+                                    emitProgress("exporting_backup", written, progressTotal, "Archiving offline English dictionary...");
+                                }
+                            }
+                        }
+                        zos.closeEntry();
+                        dbSha256 = toHex(digest.digest());
+                    }
+
+                    // 3. Write manifest.json with verified SHA-256 checksums & exact byte sizes
+                    JSONObject manifest = new JSONObject();
+                    manifest.put("format", BACKUP_FORMAT);
+                    manifest.put("formatVersion", BACKUP_FORMAT_VERSION);
+                    SimpleDateFormat isoFmt = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
+                    isoFmt.setTimeZone(TimeZone.getTimeZone("UTC"));
+                    manifest.put("createdAtIso", isoFmt.format(new Date()));
+                    manifest.put("includesEnglishSqlite", includeEnglish);
+                    manifest.put("bundledStateBytes", stateBytes.length);
+                    manifest.put("bundledStateSha256", stateSha256);
+
+                    if (includeEnglish && dbSummary != null) {
+                        JSONObject enObj = new JSONObject();
+                        enObj.put("packId", "en-wiktionary-sqlite");
+                        enObj.put("datasetVersion", dbSummary.optString("pack_version", ""));
+                        enObj.put("schemaVersion", dbSummary.optInt("schema_version", 1));
+                        enObj.put("acceptedEntries", dbSummary.optInt("accepted_entries", 0));
+                        enObj.put("distinctHeadwords", dbSummary.optInt("distinct_headwords", 0));
+                        enObj.put("totalSenses", dbSummary.optInt("total_senses", 0));
+                        enObj.put("dbBytes", dbTotalBytes);
+                        enObj.put("dbSha256", dbSha256);
+                        manifest.put("englishPack", enObj);
+                    }
+
+                    ZipEntry manifestEntry = new ZipEntry(BACKUP_ENTRY_MANIFEST);
+                    zos.putNextEntry(manifestEntry);
+                    zos.write(manifest.toString(2).getBytes(StandardCharsets.UTF_8));
+                    zos.closeEntry();
+                    zos.finish();
+                }
+
+                emitProgress("exporting_backup", progressTotal, progressTotal, "Offline backup exported.");
+
+                JSObject res = new JSObject();
+                res.put("exported", true);
+                res.put("includesEnglishSqlite", includeEnglish);
+                res.put("englishDbBytes", dbTotalBytes);
+                res.put("englishDbSha256", dbSha256);
+                res.put("bundledStateSha256", stateSha256);
+                res.put("uri", targetUri.toString());
+                call.resolve(res);
+            } catch (Exception e) {
+                call.reject("BACKUP_EXPORT_FAILED: " + e.getMessage(), "BACKUP_EXPORT_FAILED", e);
+            } finally {
+                pendingExportStateJson = "";
+                backupInProgress.set(false);
+            }
+        });
+    }
+
+    /**
+     * Phase 5: User-controlled offline restore via Android Storage Access Framework (ACTION_OPEN_DOCUMENT).
+     * Reads .lexicabackup ZIP strictly offline via ContentResolver, verifies manifest + SHA-256 + SQLite PRAGMA quick_check,
+     * prevents duplicate overwrites unless replaceExisting=true, and swaps atomically without corrupting active DB on failure.
+     */
+    @PluginMethod
+    public void importBackup(PluginCall call) {
+        boolean replaceExisting = Boolean.TRUE.equals(call.getBoolean("replaceExisting", false));
+
+        if (installInProgress.get()) {
+            call.reject("INSTALL_IN_PROGRESS: Wait for the English pack download to finish before restoring.", "INSTALL_IN_PROGRESS");
+            return;
+        }
+        if (!backupInProgress.compareAndSet(false, true)) {
+            call.reject("BACKUP_IN_PROGRESS: Another backup operation is already in progress.", "BACKUP_IN_PROGRESS");
+            return;
+        }
+
+        pendingImportReplaceExisting = replaceExisting;
+
+        try {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            intent.putExtra(
+                Intent.EXTRA_MIME_TYPES,
+                new String[] { "application/zip", "application/x-zip-compressed", "application/octet-stream", "*/*" }
+            );
+            startActivityForResult(call, intent, "handleImportBackupResult");
+        } catch (Exception e) {
+            backupInProgress.set(false);
+            call.reject("BACKUP_PICKER_FAILED: " + e.getMessage(), "BACKUP_PICKER_FAILED", e);
+        }
+    }
+
+    @ActivityCallback
+    private void handleImportBackupResult(PluginCall call, ActivityResult result) {
+        if (call == null) {
+            backupInProgress.set(false);
+            return;
+        }
+        if (result == null
+                || result.getResultCode() != Activity.RESULT_OK
+                || result.getData() == null
+                || result.getData().getData() == null) {
+            backupInProgress.set(false);
+            call.reject("Backup restore cancelled.", "BACKUP_CANCELLED");
+            return;
+        }
+
+        final Uri sourceUri = result.getData().getData();
+        final boolean replaceExisting = pendingImportReplaceExisting;
+
+        executor.execute(() -> {
+            File dir = getPacksDir();
+            File activeDb = new File(dir, ACTIVE_DB_NAME);
+            File bakDb = new File(dir, BACKUP_DB_NAME);
+            File stagingDb = new File(dir, "lexica_englishSQLite.backup.tmp.db");
+
+            try {
+                deleteIfExists(stagingDb);
+                emitProgress("reading_backup", 0L, 100L, "Reading offline backup archive...");
+
+                String manifestStr = null;
+                byte[] bundledStateBytes = null;
+                boolean extractedDb = false;
+                String extractedDbSha256 = "";
+                long extractedDbBytes = 0L;
+
+                try (InputStream rawIn = getContext().getContentResolver().openInputStream(sourceUri)) {
+                    if (rawIn == null) {
+                        throw new IOException("Unable to open selected backup document.");
+                    }
+                    try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(rawIn, IO_BUFFER_SIZE))) {
+                        ZipEntry entry;
+                        while ((entry = zis.getNextEntry()) != null) {
+                            String entryName = entry.getName();
+                            if (entry.isDirectory()) {
+                                zis.closeEntry();
+                                continue;
+                            }
+                            if (entryName.contains("..")) {
+                                throw new IOException("Unsafe path in backup archive: " + entryName);
+                            }
+
+                            if (BACKUP_ENTRY_MANIFEST.equals(entryName)) {
+                                byte[] bytes = readSmallZipEntry(zis, MAX_JSON_ENTRY_BYTES);
+                                manifestStr = new String(bytes, StandardCharsets.UTF_8);
+                            } else if (BACKUP_ENTRY_STATE.equals(entryName)) {
+                                bundledStateBytes = readSmallZipEntry(zis, MAX_JSON_ENTRY_BYTES);
+                            } else if (BACKUP_ENTRY_ENGLISH_DB.equals(entryName)) {
+                                long avail = getAvailableStorageBytes(dir);
+                                long expectedEntrySize = entry.getSize();
+                                if (expectedEntrySize > 0 && avail < expectedEntrySize + STORAGE_SAFETY_MARGIN_BYTES) {
+                                    throw new IOException("Insufficient storage space to restore English SQLite pack.");
+                                }
+                                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                                byte[] buf = new byte[IO_BUFFER_SIZE];
+                                long written = 0L;
+                                long lastEmitMs = 0L;
+                                long progressDenominator = expectedEntrySize > 0 ? expectedEntrySize : 115_000_000L;
+
+                                try (FileOutputStream fos = new FileOutputStream(stagingDb, false)) {
+                                    int n;
+                                    while ((n = zis.read(buf)) != -1) {
+                                        digest.update(buf, 0, n);
+                                        fos.write(buf, 0, n);
+                                        written += n;
+                                        long now = System.currentTimeMillis();
+                                        if (now - lastEmitMs >= 200) {
+                                            lastEmitMs = now;
+                                            emitProgress(
+                                                "reading_backup",
+                                                Math.min(written, progressDenominator),
+                                                progressDenominator,
+                                                "Extracting backup SQLite dictionary..."
+                                            );
+                                        }
+                                    }
+                                    fos.getFD().sync();
+                                }
+                                extractedDb = true;
+                                extractedDbBytes = written;
+                                extractedDbSha256 = toHex(digest.digest());
+                            }
+                            zis.closeEntry();
+                        }
+                    }
+                }
+
+                if (manifestStr == null || bundledStateBytes == null) {
+                    call.reject(
+                        "BACKUP_CORRUPTED: Archive is missing manifest.json or bundled_state.json.",
+                        "BACKUP_CORRUPTED"
+                    );
+                    return;
+                }
+
+                emitProgress("verifying_backup", 50L, 100L, "Verifying backup checksums and structure...");
+                JSONObject manifest = new JSONObject(manifestStr);
+                if (!BACKUP_FORMAT.equals(manifest.optString("format", ""))
+                        || manifest.optInt("formatVersion", 0) != BACKUP_FORMAT_VERSION) {
+                    call.reject("BACKUP_CORRUPTED: Unsupported or invalid Lexica backup format.", "BACKUP_CORRUPTED");
+                    return;
+                }
+
+                String expectedStateSha = headerOrEmpty(manifest.optString("bundledStateSha256", ""));
+                long expectedStateBytes = manifest.optLong("bundledStateBytes", -1L);
+                String actualStateSha = computeBytesSha256(bundledStateBytes);
+                if (!SHA256_HEX_PATTERN.matcher(expectedStateSha).matches()
+                        || expectedStateBytes != bundledStateBytes.length
+                        || !expectedStateSha.equalsIgnoreCase(actualStateSha)) {
+                    call.reject("BACKUP_CORRUPTED: Bundled language state checksum verification failed.", "BACKUP_CORRUPTED");
+                    return;
+                }
+
+                String bundledStateJson = new String(bundledStateBytes, StandardCharsets.UTF_8);
+                // Validate bundledStateJson is parseable JSON object
+                new JSONObject(bundledStateJson);
+
+                boolean includesEnglishSqlite = manifest.optBoolean("includesEnglishSqlite", false);
+                JSObject restoredDbSummary = null;
+
+                if (includesEnglishSqlite) {
+                    JSONObject enObj = manifest.optJSONObject("englishPack");
+                    if (!extractedDb || !stagingDb.exists() || enObj == null) {
+                        call.reject(
+                            "BACKUP_CORRUPTED: Backup manifest declares English SQLite pack, but archive database is missing.",
+                            "BACKUP_CORRUPTED"
+                        );
+                        return;
+                    }
+                    long expectedDbBytes = enObj.optLong("dbBytes", -1L);
+                    String expectedDbSha = headerOrEmpty(enObj.optString("dbSha256", ""));
+                    if (!SHA256_HEX_PATTERN.matcher(expectedDbSha).matches()
+                            || expectedDbBytes != extractedDbBytes
+                            || !expectedDbSha.equalsIgnoreCase(extractedDbSha256)) {
+                        call.reject(
+                            "BACKUP_CORRUPTED: English SQLite backup SHA-256 verification failed. Existing dictionary was left untouched.",
+                            "BACKUP_CORRUPTED"
+                        );
+                        return;
+                    }
+
+                    // Validate SQLite integrity before touching active DB
+                    try {
+                        restoredDbSummary = validateStagingDatabase(stagingDb);
+                    } catch (Exception integrityErr) {
+                        call.reject(
+                            "BACKUP_CORRUPTED: Restored SQLite failed PRAGMA quick_check (" + integrityErr.getMessage() + ").",
+                            "BACKUP_CORRUPTED"
+                        );
+                        return;
+                    }
+
+                    // Duplicate / overwrite safeguard
+                    if (activeDb.exists() && activeDb.length() > 0 && !replaceExisting) {
+                        String existingSha = "";
+                        try {
+                            existingSha = computeFileSha256(activeDb);
+                        } catch (Exception ignored) {
+                        }
+                        if (!existingSha.isEmpty() && existingSha.equalsIgnoreCase(extractedDbSha256)) {
+                            call.reject(
+                                "BACKUP_DUPLICATE_PACK: The selected backup matches the already installed English dictionary pack.",
+                                "BACKUP_DUPLICATE_PACK"
+                            );
+                            return;
+                        }
+                        call.reject(
+                            "BACKUP_CONFLICT_EXISTS: An offline English dictionary is already installed. Confirm Replace Existing to overwrite it.",
+                            "BACKUP_CONFLICT_EXISTS"
+                        );
+                        return;
+                    }
+
+                    emitProgress("restoring_backup", 90L, 100L, "Activating restored English SQLite dictionary...");
+                    atomicReplaceDatabase(stagingDb, activeDb, bakDb);
+                }
+
+                emitProgress("restoring_backup", 100L, 100L, "Backup restored offline.");
+
+                JSObject res = new JSObject();
+                res.put("restored", true);
+                res.put("includesEnglishSqlite", includesEnglishSqlite);
+                res.put("bundledStateJson", bundledStateJson);
+                res.put("uri", sourceUri.toString());
+                if (includesEnglishSqlite && restoredDbSummary != null) {
+                    res.put("dbPath", activeDb.getAbsolutePath());
+                    res.put("dbSizeBytes", activeDb.length());
+                    res.put("datasetVersion", restoredDbSummary.optString("pack_version", ""));
+                    res.put("schemaVersion", restoredDbSummary.optInt("schema_version", 1));
+                    res.put("acceptedEntries", restoredDbSummary.optInt("accepted_entries", 0));
+                    res.put("distinctHeadwords", restoredDbSummary.optInt("distinct_headwords", 0));
+                    res.put("totalSenses", restoredDbSummary.optInt("total_senses", 0));
+                }
+                call.resolve(res);
+            } catch (Exception e) {
+                call.reject("BACKUP_IMPORT_FAILED: " + e.getMessage(), "BACKUP_IMPORT_FAILED", e);
+            } finally {
+                deleteIfExists(stagingDb);
+                backupInProgress.set(false);
+            }
+        });
+    }
+
+    private OutputStream openDocumentOutputStream(Uri uri) throws IOException {
+        try {
+            OutputStream out = getContext().getContentResolver().openOutputStream(uri, "wt");
+            if (out != null) return out;
+        } catch (IllegalArgumentException ignored) {
+            // Some OEM document providers accept only default write mode
+        }
+        OutputStream fallback = getContext().getContentResolver().openOutputStream(uri);
+        if (fallback == null) {
+            throw new IOException("Unable to open target document for writing.");
+        }
+        return fallback;
+    }
+
+    private byte[] readSmallZipEntry(ZipInputStream zis, int maxBytes) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        byte[] buf = new byte[8192];
+        int total = 0;
+        int n;
+        while ((n = zis.read(buf)) != -1) {
+            total += n;
+            if (total > maxBytes) {
+                throw new IOException("Backup metadata entry exceeded safety size limit.");
+            }
+            baos.write(buf, 0, n);
+        }
+        return baos.toByteArray();
+    }
+
+    private void atomicReplaceDatabase(File stagingDb, File activeDb, File bakDb) throws IOException {
+        boolean hadExisting = activeDb.exists();
+        deleteIfExists(bakDb);
+        if (hadExisting && !activeDb.renameTo(bakDb)) {
+            deleteIfExists(stagingDb);
+            throw new IOException("Failed to stage existing database backup before replacement.");
+        }
+        if (!stagingDb.renameTo(activeDb)) {
+            if (hadExisting && bakDb.exists()) {
+                //noinspection ResultOfMethodCallIgnored
+                bakDb.renameTo(activeDb);
+            }
+            deleteIfExists(stagingDb);
+            throw new IOException("Failed to activate verified English SQLite database.");
+        }
+        deleteIfExists(bakDb);
+    }
+
     private void deleteIfExists(File file) {
-        if (file.exists()) {
+        if (file != null && file.exists()) {
             //noinspection ResultOfMethodCallIgnored
             file.delete();
         }
@@ -454,7 +952,6 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 status = conn.getResponseCode();
                 respEtag = headerOrEmpty(conn.getHeaderField("ETag"));
             } else if (existingLen > 0 && status == HttpURLConnection.HTTP_OK) {
-                // Server ignored Range and sent full body; restart cleanly from byte 0
                 deleteIfExists(partFile);
                 deleteIfExists(metaFile);
                 appendMode = false;
@@ -565,6 +1062,12 @@ public class EnglishPackInstallerPlugin extends Plugin {
         return val == null ? "" : val.trim();
     }
 
+    private String computeBytesSha256(byte[] data) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        digest.update(data);
+        return toHex(digest.digest());
+    }
+
     private String computeFileSha256(File file) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         byte[] buf = new byte[IO_BUFFER_SIZE];
@@ -649,11 +1152,14 @@ public class EnglishPackInstallerPlugin extends Plugin {
             while (c.moveToNext()) {
                 String k = c.getString(0);
                 String v = c.getString(1);
-                if ("accepted_entries".equals(k) || "distinct_headwords".equals(k) || "total_senses".equals(k)) {
+                if ("accepted_entries".equals(k)
+                        || "distinct_headwords".equals(k)
+                        || "total_senses".equals(k)
+                        || "schema_version".equals(k)) {
                     try {
                         obj.put(k, Integer.parseInt(v));
                     } catch (NumberFormatException ignored) {
-                        obj.put(k, 0);
+                        obj.put(k, "schema_version".equals(k) ? 1 : 0);
                     }
                 } else {
                     obj.put(k, v);

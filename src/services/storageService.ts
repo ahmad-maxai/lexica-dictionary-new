@@ -147,6 +147,13 @@ export const StorageService = {
     return updated;
   },
 
+  restoreCollections(collections: Collection[]): Collection[] {
+    try {
+      localStorage.setItem(STORAGE_KEYS.COLLECTIONS, JSON.stringify(collections));
+    } catch {}
+    return collections;
+  },
+
   togglePackInstalled(code: LanguageCode): InstalledPack {
     const prefs = this.getPreferences();
     const liveStats = dictionaryDb.getLanguagePackStats();

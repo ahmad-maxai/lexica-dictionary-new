@@ -106,6 +106,14 @@ import {
   type SqlQueryExecutor,
 } from '../src/services/englishSqliteRepository';
 import { searchEnglishStandardUnified } from '../src/services/englishSearchCoordinator';
+import {
+  buildBundledStatePayload,
+  createWebBackupEnvelope,
+  parseAndVerifyWebBackupEnvelope,
+  importOfflineBackup,
+  exportOfflineBackup,
+  LEXICA_BACKUP_FORMAT,
+} from '../src/services/backupService';
 
 let passed = 0;
 let total = 0;
@@ -402,6 +410,185 @@ function createFixtureEnglishSqliteDb(filePath: string): void {
   db.close();
 }
 
+function createSchemaV2FixtureEnglishSqliteDb(filePath: string): void {
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  const db = createCompatDb(filePath, false);
+  db.exec(`
+    PRAGMA page_size = 16384;
+    PRAGMA foreign_keys = ON;
+    CREATE TABLE metadata (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL) WITHOUT ROWID;
+    CREATE TABLE sources (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      license TEXT NOT NULL,
+      attribution_text TEXT NOT NULL,
+      source_url TEXT NOT NULL,
+      dataset_version TEXT NOT NULL
+    );
+    CREATE TABLE parts_of_speech (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE
+    );
+    CREATE TABLE tag_sets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tags_json TEXT NOT NULL UNIQUE
+    );
+    CREATE TABLE pronunciations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      all_ipas TEXT NOT NULL UNIQUE
+    );
+    CREATE TABLE etymologies (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      text TEXT NOT NULL UNIQUE
+    );
+    CREATE TABLE audio_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      filename TEXT NOT NULL UNIQUE
+    );
+    CREATE TABLE entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      headword_lower TEXT NOT NULL,
+      headword TEXT,
+      pos_id INTEGER NOT NULL REFERENCES parts_of_speech(id),
+      primary_ipa TEXT,
+      pronunciation_id INTEGER REFERENCES pronunciations(id),
+      audio_id INTEGER REFERENCES audio_files(id),
+      etymology_id INTEGER REFERENCES etymologies(id),
+      source_id INTEGER NOT NULL REFERENCES sources(id)
+    );
+    CREATE TABLE senses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+      sense_number INTEGER NOT NULL,
+      definition TEXT NOT NULL,
+      tags_id INTEGER REFERENCES tag_sets(id),
+      examples TEXT,
+      synonyms TEXT,
+      antonyms TEXT
+    );
+    CREATE TABLE word_forms (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+      form_lower TEXT NOT NULL,
+      form TEXT,
+      tags_id INTEGER REFERENCES tag_sets(id)
+    );
+    CREATE VIRTUAL TABLE entries_fts USING fts5(
+      headword,
+      definitions_text,
+      content='',
+      detail=column,
+      tokenize = 'unicode61 remove_diacritics 1'
+    );
+    CREATE INDEX idx_entries_headword_lower ON entries(headword_lower);
+    CREATE INDEX idx_senses_entry_id ON senses(entry_id, sense_number);
+    CREATE INDEX idx_word_forms_entry_id ON word_forms(entry_id);
+    CREATE INDEX idx_word_forms_lower ON word_forms(form_lower);
+  `);
+
+  const srcRes = db.prepare(
+    `INSERT INTO sources (code, name, license, attribution_text, source_url, dataset_version) VALUES (?, ?, ?, ?, ?, ?);`
+  ).run(
+    'src-kaikki-enwiktionary',
+    ENGLISH_PACK_MANIFEST.attribution.sourceName,
+    ENGLISH_PACK_MANIFEST.attribution.license,
+    ENGLISH_PACK_MANIFEST.attribution.attributionText,
+    ENGLISH_PACK_MANIFEST.attribution.sourceUrl,
+    ENGLISH_PACK_MANIFEST.datasetVersion
+  );
+  const srcId = Number(srcRes.lastInsertRowid);
+
+  const posNounId = Number(db.prepare(`INSERT INTO parts_of_speech (name) VALUES (?);`).run('noun').lastInsertRowid);
+  const posAdjId = Number(db.prepare(`INSERT INTO parts_of_speech (name) VALUES (?);`).run('adj').lastInsertRowid);
+  const posVerbId = Number(db.prepare(`INSERT INTO parts_of_speech (name) VALUES (?);`).run('verb').lastInsertRowid);
+
+  const tagPluralId = Number(db.prepare(`INSERT INTO tag_sets (tags_json) VALUES (?);`).run('["plural"]').lastInsertRowid);
+  const tagPartId = Number(db.prepare(`INSERT INTO tag_sets (tags_json) VALUES (?);`).run('["participle","present"]').lastInsertRowid);
+
+  const pronEpistId = Number(
+    db.prepare(`INSERT INTO pronunciations (all_ipas) VALUES (?);`)
+      .run(JSON.stringify([['/ɪˌpɪstəˈmɒləd͡ʒi/', ['Received-Pronunciation']], ['/ɪˌpɪstəˈmɑləd͡ʒi/', ['General-American']]]))
+      .lastInsertRowid
+  );
+  const pronLightId = Number(
+    db.prepare(`INSERT INTO pronunciations (all_ipas) VALUES (?);`)
+      .run(JSON.stringify([['[laɪt]', ['Received-Pronunciation']], ['[laɪt]', ['General-American']], ['[lʌɪt]', ['Scotland']]]))
+      .lastInsertRowid
+  );
+  const etymEpistId = Number(
+    db.prepare(`INSERT INTO etymologies (text) VALUES (?);`).run('Ancient Greek episteme + -logy').lastInsertRowid
+  );
+
+  // Entry 1: epistemology (nullable headword since identical to lowercase)
+  const e1 = Number(
+    db.prepare(`INSERT INTO entries (headword, headword_lower, pos_id, primary_ipa, pronunciation_id, etymology_id, source_id) VALUES (?, ?, ?, ?, ?, ?, ?);`)
+      .run(null, 'epistemology', posNounId, '/ɪˌpɪstəˈmɒləd͡ʒi/', pronEpistId, etymEpistId, srcId).lastInsertRowid
+  );
+  db.prepare(`INSERT INTO senses (entry_id, sense_number, definition, tags_id, examples, synonyms) VALUES (?, ?, ?, ?, ?, ?);`)
+    .run(e1, 1, 'The branch of philosophy studying the nature and limits of human knowledge.', tagPluralId,
+      JSON.stringify([['Epistemology investigates justified belief.', 'Philosophy Text']]), JSON.stringify(['theory of knowledge']));
+  db.prepare(`INSERT INTO word_forms (entry_id, form, form_lower, tags_id) VALUES (?, ?, ?, ?);`)
+    .run(e1, null, 'epistemologies', tagPluralId);
+  db.prepare(`INSERT INTO entries_fts (rowid, headword, definitions_text) VALUES (?, ?, ?);`)
+    .run(e1, 'epistemology', 'The branch of philosophy studying the nature and limits of human knowledge.');
+
+  // Entry 2 & 3: light (noun + adj)
+  const e2 = Number(
+    db.prepare(`INSERT INTO entries (headword, headword_lower, pos_id, primary_ipa, pronunciation_id, source_id) VALUES (?, ?, ?, ?, ?, ?);`)
+      .run(null, 'light', posNounId, '[laɪt]', pronLightId, srcId).lastInsertRowid
+  );
+  db.prepare(`INSERT INTO senses (entry_id, sense_number, definition) VALUES (?, ?, ?);`)
+    .run(e2, 1, 'Visible electromagnetic radiation.');
+  db.prepare(`INSERT INTO senses (entry_id, sense_number, definition) VALUES (?, ?, ?);`)
+    .run(e2, 2, 'A source of illumination such as a lamp.');
+  db.prepare(`INSERT INTO entries_fts (rowid, headword, definitions_text) VALUES (?, ?, ?);`)
+    .run(e2, 'light', 'Visible electromagnetic radiation. | A source of illumination such as a lamp.');
+
+  const e3 = Number(
+    db.prepare(`INSERT INTO entries (headword, headword_lower, pos_id, primary_ipa, pronunciation_id, source_id) VALUES (?, ?, ?, ?, ?, ?);`)
+      .run(null, 'light', posAdjId, '[laɪt]', pronLightId, srcId).lastInsertRowid
+  );
+  db.prepare(`INSERT INTO senses (entry_id, sense_number, definition) VALUES (?, ?, ?);`)
+    .run(e3, 1, 'Having low weight; not heavy.');
+  db.prepare(`INSERT INTO entries_fts (rowid, headword, definitions_text) VALUES (?, ?, ?);`)
+    .run(e3, 'light', 'Having low weight; not heavy.');
+
+  // Entry 4: run (verb + inflected form)
+  const e4 = Number(
+    db.prepare(`INSERT INTO entries (headword, headword_lower, pos_id, source_id) VALUES (?, ?, ?, ?);`)
+      .run(null, 'run', posVerbId, srcId).lastInsertRowid
+  );
+  db.prepare(`INSERT INTO senses (entry_id, sense_number, definition) VALUES (?, ?, ?);`)
+    .run(e4, 1, 'To move swiftly on foot.');
+  db.prepare(`INSERT INTO word_forms (entry_id, form, form_lower, tags_id) VALUES (?, ?, ?, ?);`)
+    .run(e4, null, 'running', tagPartId);
+  db.prepare(`INSERT INTO entries_fts (rowid, headword, definitions_text) VALUES (?, ?, ?);`)
+    .run(e4, 'run', 'To move swiftly on foot.');
+
+  // Entry 5: capitalized headword preserved explicitly
+  const e5 = Number(
+    db.prepare(`INSERT INTO entries (headword, headword_lower, pos_id, source_id) VALUES (?, ?, ?, ?);`)
+      .run('Serendipity', 'serendipity', posNounId, srcId).lastInsertRowid
+  );
+  db.prepare(`INSERT INTO senses (entry_id, sense_number, definition) VALUES (?, ?, ?);`)
+    .run(e5, 1, 'Finding valuable things unexpectedly by chance.');
+  db.prepare(`INSERT INTO entries_fts (rowid, headword, definitions_text) VALUES (?, ?, ?);`)
+    .run(e5, 'Serendipity', 'Finding valuable things unexpectedly by chance.');
+
+  const metaInsert = db.prepare(`INSERT INTO metadata (key, value) VALUES (?, ?);`);
+  metaInsert.run('schema_version', '2');
+  metaInsert.run('dataset_name', 'Lexica English Schema v2 Fixture');
+  metaInsert.run('pack_version', '0.3.0');
+  metaInsert.run('accepted_entries', '5');
+  metaInsert.run('distinct_headwords', '4');
+  metaInsert.run('total_senses', '6');
+  metaInsert.run('source_license', ENGLISH_PACK_MANIFEST.attribution.license);
+  metaInsert.run('source_attribution', ENGLISH_PACK_MANIFEST.attribution.attributionText);
+
+  db.close();
+}
+
 async function main(): Promise<void> {
   console.log('\n==============================================================');
   console.log('LEXICA ENGLISH SQLITE INTEGRATION & FAILURE MODE TEST SUITE');
@@ -496,7 +683,7 @@ async function main(): Promise<void> {
       });
       const androidMissing = await searchEnglishStandardUnified('epistemology');
       assert.strictEqual(androidMissing.status, 'language_not_installed');
-      assert(androidMissing.message?.includes('55.49 MB'), 'Must expose actual compressed size');
+      assert(androidMissing.message?.includes('44.82 MB'), 'Must expose actual compressed size');
 
       englishPackService.setTestingOverrides({ platform: 'web' });
       const webFallback = await searchEnglishStandardUnified('Water');
@@ -599,7 +786,29 @@ async function main(): Promise<void> {
     });
 
     // Optional full 75,000-entry prototype DB verification when running on build machine with /tmp/lexica_english_v020.db
-    const fullV020Path = '/tmp/lexica_english_v020.db';
+    const fullV030Path = '/tmp/lexica_release_v030/lexica_english.db';
+    if (fs.existsSync(fullV030Path)) {
+      await runAsyncTest('4.9b Full 75,000-entry Schema v2 (v0.3.0) SQLite DB verification', async () => {
+        englishSqliteRepo.setExecutorForTest(new NodeSqliteExecutor(fullV030Path));
+        for (const word of ['epistemology', 'photosynthesis', 'serendipity', 'ubiquitous', 'dictionary', 'run', 'light']) {
+          const r = await searchEnglishStandardUnified(word, { limit: 10, offset: 0 });
+          assert.strictEqual(r.status, 'ok', `Expected ok for ${word} in v0.3.0 DB`);
+          assert(r.results.length > 0, `Expected hits for ${word}`);
+          assert(r.results[0].senses.length > 0, `Expected senses for ${word}`);
+        }
+        const lightFull = await searchEnglishStandardUnified('light');
+        assert.strictEqual(lightFull.results[0].entry.ipa, '[laɪt]', 'Full v0.3.0 DB light must use RP [laɪt]');
+        assert((lightFull.results[0].entry.allIpas?.length || 0) >= 6, 'Full v0.3.0 DB preserves all 6 dialect IPAs');
+        const epistPrefix = await searchEnglishStandardUnified('epistem', { limit: 10, offset: 0 });
+        assert(epistPrefix.results.some((r) => r.entry.headword === 'epistemology'));
+        const meta = englishSqliteRepo.getCachedMetadata();
+        assert.strictEqual(meta?.acceptedEntries, 75000);
+        assert.strictEqual(meta?.distinctHeadwords, 45317);
+        assert.strictEqual(meta?.totalSenses, 190672);
+      });
+    }
+
+    const fullV020Path = '/tmp/lexica_en_v020.db';
     if (fs.existsSync(fullV020Path)) {
       await runAsyncTest('4.9 Full 75,000-entry v0.2.0 SQLite DB repository & RP/GA IPA verification', async () => {
         englishSqliteRepo.setExecutorForTest(new NodeSqliteExecutor(fullV020Path));
@@ -624,8 +833,10 @@ async function main(): Promise<void> {
       const liveValidation = validateEnglishPackManifest(ENGLISH_PACK_MANIFEST);
       assert.strictEqual(liveValidation.valid, true, liveValidation.message);
       assert.strictEqual(ENGLISH_PACK_MANIFEST.packId, 'en-wiktionary-sqlite');
-      assert.strictEqual(ENGLISH_PACK_MANIFEST.compressedSizeBytes, 58190048);
-      assert.strictEqual(ENGLISH_PACK_MANIFEST.uncompressedSizeBytes, 165916672);
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.packVersion, '0.3.0');
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.schemaVersion, 2);
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.compressedSizeBytes, 47000179);
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.uncompressedSizeBytes, 110706688);
       assert(/^[a-f0-9]{64}$/.test(ENGLISH_PACK_MANIFEST.compressedSha256));
       assert(/^[a-f0-9]{64}$/.test(ENGLISH_PACK_MANIFEST.uncompressedSha256));
 
@@ -750,6 +961,209 @@ async function main(): Promise<void> {
       for (const code of ['ha', 'yo', 'ff', 'ar', 'fr', 'zh'] as const) {
         assert.strictEqual(stats[code].isInstalled, true, `${code} pack must remain installed`);
         assert(stats[code].loadedEntriesCount > 0, `${code} must retain offline entries`);
+      }
+    });
+    const tmpV2DbPath = path.join(os.tmpdir(), `lexica_en_v2_test_${process.pid}.db`);
+    createSchemaV2FixtureEnglishSqliteDb(tmpV2DbPath);
+    try {
+      await runAsyncTest('4.12 Schema v2 normalized tables, compact JSON, nullable headwords & contentless FTS5', async () => {
+        englishSqliteRepo.setExecutorForTest(new NodeSqliteExecutor(tmpV2DbPath));
+        const epist = await searchEnglishStandardUnified('epistemology');
+        assert.strictEqual(epist.status, 'ok');
+        assert.strictEqual(epist.results[0].entry.headword, 'epistemology');
+        assert.strictEqual(epist.results[0].entry.ipa, '/ɪˌpɪstəˈmɒləd͡ʒi/');
+        assert.strictEqual(epist.results[0].entry.allIpas?.length, 2);
+        assert.strictEqual(epist.results[0].entry.etymology, 'Ancient Greek episteme + -logy');
+        assert.strictEqual(epist.results[0].senses[0].examples[0]?.sourceText, 'Epistemology investigates justified belief.');
+        assert.strictEqual(epist.results[0].senses[0].examples[0]?.culturalContext, 'Reference: Philosophy Text');
+
+        const light = await searchEnglishStandardUnified('LIGHT');
+        assert.strictEqual(light.results.length, 2);
+        assert.strictEqual(light.results[0].senses.length, 2);
+        assert.strictEqual(light.results[0].entry.allIpas?.length, 3);
+
+        const cap = await searchEnglishStandardUnified('serendipity');
+        assert.strictEqual(cap.results[0].entry.headword, 'Serendipity', 'Explicit capitalized headword preserved');
+
+        const prefix = await searchEnglishStandardUnified('epistem');
+        assert(prefix.results.some((r) => r.entry.headword === 'epistemology'));
+
+        const morph = await searchEnglishStandardUnified('running');
+        assert.strictEqual(morph.results[0].matchedField, 'morphology');
+        assert.strictEqual(morph.results[0].entry.headword, 'run');
+
+        const fts = await searchEnglishStandardUnified('nature limits');
+        assert.strictEqual(fts.status, 'ok');
+        assert.strictEqual(fts.results[0].matchedField, 'definition');
+      });
+    } finally {
+      if (fs.existsSync(tmpV2DbPath)) fs.unlinkSync(tmpV2DbPath);
+    }
+
+    await runAsyncTest('4.13 Duplicate-version download guard avoids redundant network downloads', async () => {
+      englishPackService.resetTestingOverrides();
+      let networkDownloadCalls = 0;
+      const bridge: EnglishPackInstallerNative = {
+        async getPackStatus() {
+          return {
+            installed: true,
+            dbPath: tmpDbPath,
+            dbSizeBytes: ENGLISH_PACK_MANIFEST.uncompressedSizeBytes,
+            partialBytes: 0,
+            availableBytes: 1_500_000_000,
+            inProgress: false,
+            datasetVersion: ENGLISH_PACK_MANIFEST.packVersion,
+            schemaVersion: 2,
+            acceptedEntries: ENGLISH_PACK_MANIFEST.acceptedEntries,
+            distinctHeadwords: ENGLISH_PACK_MANIFEST.distinctHeadwords,
+            totalSenses: ENGLISH_PACK_MANIFEST.totalSenses,
+          };
+        },
+        async installPack() {
+          networkDownloadCalls++;
+          return { installed: true };
+        },
+        async cancelInstall() { return { cancelled: true }; },
+        async removePack() { return { removed: true, availableBytes: 1_500_000_000 }; },
+        async verifyInstalledPack() {
+          return {
+            installed: true,
+            dbPath: tmpDbPath,
+            dbSizeBytes: ENGLISH_PACK_MANIFEST.uncompressedSizeBytes,
+            datasetVersion: ENGLISH_PACK_MANIFEST.packVersion,
+            acceptedEntries: ENGLISH_PACK_MANIFEST.acceptedEntries,
+            distinctHeadwords: ENGLISH_PACK_MANIFEST.distinctHeadwords,
+            totalSenses: ENGLISH_PACK_MANIFEST.totalSenses,
+          };
+        },
+        async getMemoryMetrics() {
+          return { javaHeapUsedBytes: 0, javaHeapMaxBytes: 0, nativeHeapAllocatedBytes: 0, systemAvailMemBytes: 0, systemTotalMemBytes: 0, lowMemory: false };
+        },
+        async addListener() { return { remove: async () => {} }; },
+      };
+
+      englishPackService.setTestingOverrides({ platform: 'android', nativeBridge: bridge });
+      const res = await englishPackService.installEnglishPack();
+      assert.strictEqual(res.installed, true);
+      assert.strictEqual(res.alreadyInstalled, true);
+      assert.strictEqual(networkDownloadCalls, 0, 'Duplicate version must not trigger installPack download');
+    });
+
+    await runAsyncTest('4.14 Offline backup export/restore checksum validation, tamper rejection & 6-pack safety', async () => {
+      englishPackService.resetTestingOverrides();
+      // Provide an isolated in-memory localStorage mock for Node test runtime
+      const memStore = new Map<string, string>();
+      const prevWindow = (globalThis as Record<string, unknown>).window;
+      const prevLocalStorage = (globalThis as Record<string, unknown>).localStorage;
+      const mockLocalStorage = {
+        getItem: (k: string) => (memStore.has(k) ? memStore.get(k)! : null),
+        setItem: (k: string, v: string) => { memStore.set(k, String(v)); },
+        removeItem: (k: string) => { memStore.delete(k); },
+        clear: () => { memStore.clear(); },
+      };
+      (globalThis as Record<string, unknown>).window = { localStorage: mockLocalStorage };
+      (globalThis as Record<string, unknown>).localStorage = mockLocalStorage;
+
+      try {
+        const { envelope, serialized } = await createWebBackupEnvelope();
+        assert.strictEqual(envelope.format, LEXICA_BACKUP_FORMAT);
+        assert(/^[a-f0-9]{64}$/.test(envelope.bundledStateSha256));
+
+        // 1. Corrupt/tamper check must reject before modifying active state
+        const tamperedObj = JSON.parse(serialized);
+        tamperedObj.bundledState.savedWordIds = ['tampered-word-id'];
+        let corruptErr: unknown = null;
+        try {
+          await parseAndVerifyWebBackupEnvelope(JSON.stringify(tamperedObj), { replaceExisting: true });
+        } catch (e) {
+          corruptErr = e;
+        }
+        assert(corruptErr instanceof EnglishPackInstallError);
+        assert.strictEqual(corruptErr.code, 'BACKUP_CORRUPTED');
+
+        // 2. Duplicate backup check must guard against accidental redundant restore
+        let dupErr: unknown = null;
+        try {
+          await parseAndVerifyWebBackupEnvelope(serialized, { replaceExisting: false });
+        } catch (e) {
+          dupErr = e;
+        }
+        assert(dupErr instanceof EnglishPackInstallError);
+        assert.strictEqual(dupErr.code, 'BACKUP_DUPLICATE_PACK');
+
+        // 3. Valid restore with replaceExisting=true preserves all 6 bundled packs (ha, yo, ff, ar, fr, zh)
+        const restored = await parseAndVerifyWebBackupEnvelope(serialized, { replaceExisting: true });
+        assert.strictEqual(restored.restoredPackCount, 7);
+        const statsAfter = dictionaryDb.getLanguagePackStats();
+        for (const code of ['ha', 'yo', 'ff', 'ar', 'fr', 'zh'] as const) {
+          assert.strictEqual(statsAfter[code].isInstalled, true, `${code} must remain active after restore`);
+        }
+
+        // 4. Native Android SAF bridge export/import round-trip (zero network calls)
+        let safExportCalled = false;
+        let safImportCalled = false;
+        const safStateJson = JSON.stringify(buildBundledStatePayload());
+        englishPackService.setTestingOverrides({
+          platform: 'android',
+          nativeBridge: {
+            async getPackStatus() {
+              return {
+                installed: true,
+                dbPath: tmpDbPath,
+                dbSizeBytes: ENGLISH_PACK_MANIFEST.uncompressedSizeBytes,
+                datasetVersion: ENGLISH_PACK_MANIFEST.packVersion,
+                acceptedEntries: ENGLISH_PACK_MANIFEST.acceptedEntries,
+                distinctHeadwords: ENGLISH_PACK_MANIFEST.distinctHeadwords,
+                totalSenses: ENGLISH_PACK_MANIFEST.totalSenses,
+              };
+            },
+            async installPack() { return { installed: true }; },
+            async cancelInstall() { return { cancelled: true }; },
+            async removePack() { return { removed: true, availableBytes: 1_500_000_000 }; },
+            async verifyInstalledPack() { return { installed: true }; },
+            async getMemoryMetrics() {
+              return { javaHeapUsedBytes: 0, javaHeapMaxBytes: 0, nativeHeapAllocatedBytes: 0, systemAvailMemBytes: 0, systemTotalMemBytes: 0, lowMemory: false };
+            },
+            async exportBackup(opts) {
+              safExportCalled = true;
+              assert(opts.bundledStateJson.includes(LEXICA_BACKUP_FORMAT));
+              return {
+                exported: true,
+                includesEnglishSqlite: true,
+                englishDbBytes: ENGLISH_PACK_MANIFEST.uncompressedSizeBytes,
+                englishDbSha256: ENGLISH_PACK_MANIFEST.uncompressedSha256,
+                bundledStateSha256: envelope.bundledStateSha256,
+                uri: 'content://com.android.externalstorage.documents/document/primary%3ALexica%2Fbackup.lexicabackup',
+              };
+            },
+            async importBackup(opts) {
+              safImportCalled = true;
+              assert.strictEqual(opts.replaceExisting, true);
+              return {
+                restored: true,
+                includesEnglishSqlite: true,
+                bundledStateJson: safStateJson,
+                datasetVersion: ENGLISH_PACK_MANIFEST.packVersion,
+                acceptedEntries: ENGLISH_PACK_MANIFEST.acceptedEntries,
+              };
+            },
+            async addListener() { return { remove: async () => {} }; },
+          },
+        });
+        const safExported = await exportOfflineBackup({ includeEnglishPack: true });
+        assert.strictEqual(safExportCalled, true);
+        assert.strictEqual(safExported.mode, 'android-saf');
+        assert.strictEqual(safExported.includesEnglishSqlite, true);
+
+        const safImported = await importOfflineBackup({ replaceExisting: true });
+        assert.strictEqual(safImportCalled, true);
+        assert.strictEqual(safImported.mode, 'android-saf');
+        assert.strictEqual(safImported.englishEntriesCount, ENGLISH_PACK_MANIFEST.acceptedEntries);
+      } finally {
+        if (prevWindow === undefined) delete (globalThis as Record<string, unknown>).window;
+        else (globalThis as Record<string, unknown>).window = prevWindow;
+        if (prevLocalStorage === undefined) delete (globalThis as Record<string, unknown>).localStorage;
+        else (globalThis as Record<string, unknown>).localStorage = prevLocalStorage;
       }
     });
   } finally {

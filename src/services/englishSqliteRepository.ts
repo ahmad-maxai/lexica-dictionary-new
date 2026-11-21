@@ -109,6 +109,7 @@ interface SqlWordFormRow {
 export interface EnglishSqliteMetadata {
   datasetName: string;
   packVersion: string;
+  schemaVersion: number;
   acceptedEntries: number;
   distinctHeadwords: number;
   totalSenses: number;
@@ -153,8 +154,60 @@ function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
   }
 }
 
+function parseAllIpas(raw: string | null | undefined): PronunciationVariant[] {
+  const parsed = safeJsonParse<unknown[]>(raw, []);
+  const out: PronunciationVariant[] = [];
+  for (const item of parsed) {
+    if (Array.isArray(item) && typeof item[0] === 'string') {
+      out.push({
+        ipa: item[0],
+        tags: Array.isArray(item[1]) ? item[1].map(String) : [],
+      });
+    } else if (item && typeof item === 'object' && typeof (item as { ipa?: unknown }).ipa === 'string') {
+      const obj = item as { ipa: string; tags?: unknown[] };
+      out.push({
+        ipa: obj.ipa,
+        tags: Array.isArray(obj.tags) ? obj.tags.map(String) : [],
+      });
+    }
+  }
+  return out;
+}
+
+function parseSenseExamples(raw: string | null | undefined): ExampleSentence[] {
+  const parsed = safeJsonParse<unknown[]>(raw, []);
+  const out: ExampleSentence[] = [];
+  for (const item of parsed) {
+    if (Array.isArray(item) && typeof item[0] === 'string' && item[0]) {
+      const ref = typeof item[1] === 'string' && item[1] ? item[1] : undefined;
+      out.push({
+        sourceText: item[0],
+        targetText: '',
+        culturalContext: ref ? `Reference: ${ref}` : undefined,
+      });
+    } else if (item && typeof item === 'object' && typeof (item as { text?: unknown }).text === 'string') {
+      const obj = item as { text: string; ref?: string };
+      if (obj.text) {
+        out.push({
+          sourceText: obj.text,
+          targetText: '',
+          culturalContext: obj.ref ? `Reference: ${obj.ref}` : undefined,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 function escapeSqlLike(input: string): string {
   return input.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
+function computePrefixUpperBound(prefixLower: string): string | null {
+  if (!prefixLower) return null;
+  const lastCode = prefixLower.charCodeAt(prefixLower.length - 1);
+  if (lastCode >= 0xffff) return null;
+  return prefixLower.slice(0, -1) + String.fromCharCode(lastCode + 1);
 }
 
 function buildFts5Query(rawQuery: string): string | null {
@@ -193,6 +246,7 @@ export class EnglishSqliteRepository {
   private customExecutorInjected = false;
   private openPromise: Promise<void> | null = null;
   private cachedMeta: EnglishSqliteMetadata | null = null;
+  private schemaVersion = 1;
   private fts5Supported = false;
   private lastColdOpenMs: number | null = null;
   private lastWarmOpenMs: number | null = null;
@@ -206,6 +260,7 @@ export class EnglishSqliteRepository {
   public setExecutorForTest(executor: SqlQueryExecutor | null): void {
     this.openPromise = null;
     this.cachedMeta = null;
+    this.schemaVersion = 1;
     this.fts5Supported = false;
     if (executor) {
       this.executor = executor;
@@ -230,47 +285,61 @@ export class EnglishSqliteRepository {
     await this.executor.close();
   }
 
-  public async ensureOpen(explicitDbPath?: string): Promise<void> {
-    if (!isEnglishSqliteIntegrationEnabled()) {
-      throw new Error('English SQLite integration is disabled by feature flag.');
-    }
-
-    const status = englishPackService.getCachedStatus();
-    const targetPath = explicitDbPath || this.executor.getDbPath() || status.dbPath;
-
-    if (!targetPath) {
-      throw new Error('English offline SQLite pack is not installed.');
-    }
-
-    if (this.executor.isOpen() && this.executor.getDbPath() === targetPath && this.cachedMeta) {
+  public async ensureOpen(explicitPath?: string): Promise<void> {
+    if (this.executor.isOpen() && this.cachedMeta) return;
+    if (this.openPromise) {
+      await this.openPromise;
       return;
     }
-
-    if (this.openPromise) {
-      return this.openPromise;
-    }
-
     this.openPromise = (async () => {
       const t0 = performance.now();
+      let targetPath = explicitPath || this.executor.getDbPath() || '';
+      if (!targetPath) {
+        const status = await englishPackService.ensureStatusLoaded();
+        if (!status.installed || !status.dbPath) {
+          throw new Error('English offline SQLite database is not installed.');
+        }
+        targetPath = status.dbPath;
+      }
+
       await this.executor.open(targetPath);
 
-      const metaRows = await this.executor.query<{ key: string; value: string }>(
-        'SELECT key, value FROM metadata;'
-      );
-      const metaMap = new Map(metaRows.map((r) => [r.key, r.value]));
+      // Constrain page cache (~2 MB) and temp store for low-RAM Android Go compatibility
+      try {
+        await this.executor.query('PRAGMA cache_size = -2000;');
+        await this.executor.query('PRAGMA temp_store = FILE;');
+      } catch {
+        // Ignore if test executor rejects PRAGMA adjustments
+      }
 
-      const sourceRows = await this.executor.query<{
-        name: string;
-        license: string;
-        attribution_text: string;
-        source_url: string;
-      }>('SELECT name, license, attribution_text, source_url FROM sources LIMIT 1;');
+      const [metaRows, sourceRows, posTableCheck] = await Promise.all([
+        this.executor.query<{ key: string; value: string }>('SELECT key, value FROM metadata;'),
+        this.executor.query<{
+          name: string;
+          license: string;
+          attribution_text: string;
+          source_url: string;
+        }>('SELECT name, license, attribution_text, source_url FROM sources LIMIT 1;'),
+        this.executor.query<{ cnt: number }>(
+          "SELECT COUNT(*) AS cnt FROM sqlite_master WHERE type='table' AND name='parts_of_speech';"
+        ),
+      ]);
+
+      const metaMap = new Map<string, string>();
+      for (const r of metaRows) {
+        metaMap.set(r.key, r.value);
+      }
+
+      const detectedSchema = Number(posTableCheck[0]?.cnt || 0) > 0
+        ? 2
+        : Number(metaMap.get('schema_version') || 1);
+      this.schemaVersion = detectedSchema >= 2 ? 2 : 1;
+
       const src = sourceRows[0];
-
       let ftsOk = false;
       try {
-        await this.executor.query<{ entry_id: number }>(
-          "SELECT entry_id FROM entries_fts WHERE entries_fts MATCH 'knowledge' LIMIT 1;"
+        await this.executor.query(
+          "SELECT rowid FROM entries_fts WHERE entries_fts MATCH 'knowledge' LIMIT 1;"
         );
         ftsOk = true;
       } catch {
@@ -281,6 +350,7 @@ export class EnglishSqliteRepository {
       this.cachedMeta = {
         datasetName: metaMap.get('dataset_name') || 'Lexica English Monolingual Dictionary',
         packVersion: metaMap.get('pack_version') || ENGLISH_PACK_MANIFEST.packVersion,
+        schemaVersion: this.schemaVersion,
         acceptedEntries: Number(metaMap.get('accepted_entries') || 0),
         distinctHeadwords: Number(metaMap.get('distinct_headwords') || 0),
         totalSenses: Number(metaMap.get('total_senses') || 0),
@@ -313,10 +383,63 @@ export class EnglishSqliteRepository {
     return this.cachedMeta;
   }
 
+  private getEntrySelectColumns(): string {
+    if (this.schemaVersion >= 2) {
+      return `e.id, COALESCE(e.headword, e.headword_lower) AS headword, e.headword_lower,
+              pos.name AS part_of_speech, e.primary_ipa, pr.all_ipas,
+              af.filename AS audio_file, et.text AS etymology, src.code AS source_id`;
+    }
+    return `e.id, e.headword, e.headword_lower, e.part_of_speech,
+            e.primary_ipa, e.all_ipas, e.audio_file, e.etymology, e.source_id`;
+  }
+
+  private getEntryJoins(): string {
+    if (this.schemaVersion >= 2) {
+      return `JOIN parts_of_speech pos ON pos.id = e.pos_id
+              LEFT JOIN pronunciations pr ON pr.id = e.pronunciation_id
+              LEFT JOIN audio_files af ON af.id = e.audio_id
+              LEFT JOIN etymologies et ON et.id = e.etymology_id
+              JOIN sources src ON src.id = e.source_id`;
+    }
+    return '';
+  }
+
+  private getPosColumnExpr(): string {
+    return this.schemaVersion >= 2 ? 'pos.name' : 'e.part_of_speech';
+  }
+
+  private buildPrefixCondition(prefixLower: string): { sql: string; params: unknown[] } {
+    const upper = computePrefixUpperBound(prefixLower);
+    if (upper) {
+      return {
+        sql: '(e.headword_lower >= ? AND e.headword_lower < ?)',
+        params: [prefixLower, upper],
+      };
+    }
+    return {
+      sql: "e.headword_lower LIKE ? ESCAPE '\\'",
+      params: [`${escapeSqlLike(prefixLower)}%`],
+    };
+  }
+
+  private buildNotPrefixCondition(prefixLower: string): { sql: string; params: unknown[] } {
+    const upper = computePrefixUpperBound(prefixLower);
+    if (upper) {
+      return {
+        sql: 'NOT (e.headword_lower >= ? AND e.headword_lower < ?)',
+        params: [prefixLower, upper],
+      };
+    }
+    return {
+      sql: "e.headword_lower NOT LIKE ? ESCAPE '\\'",
+      params: [`${escapeSqlLike(prefixLower)}%`],
+    };
+  }
+
   public async getAvailableLetters(): Promise<string[]> {
     await this.ensureOpen();
     const rows = await this.executor.query<{ ch: string }>(
-      "SELECT DISTINCT UPPER(SUBSTR(headword_lower, 1, 1)) AS ch FROM entries WHERE SUBSTR(headword_lower, 1, 1) BETWEEN 'a' AND 'z' ORDER BY ch ASC LIMIT 30;"
+      "SELECT DISTINCT UPPER(SUBSTR(headword_lower, 1, 1)) AS ch FROM entries WHERE headword_lower >= 'a' AND headword_lower < '{' ORDER BY ch ASC LIMIT 30;"
     );
     return rows.map((r) => r.ch).filter(Boolean);
   }
@@ -328,7 +451,7 @@ export class EnglishSqliteRepository {
 
     await this.ensureOpen();
     const rows = await this.executor.query<SqlEntryRow>(
-      'SELECT id, headword, headword_lower, part_of_speech, primary_ipa, all_ipas, audio_file, etymology, source_id FROM entries WHERE id = ? LIMIT 1;',
+      `SELECT ${this.getEntrySelectColumns()} FROM entries e ${this.getEntryJoins()} WHERE e.id = ? LIMIT 1;`,
       [numericId]
     );
     if (rows.length === 0) return null;
@@ -346,7 +469,7 @@ export class EnglishSqliteRepository {
     await this.ensureOpen();
     const placeholders = numericIds.map(() => '?').join(',');
     const rows = await this.executor.query<SqlEntryRow>(
-      `SELECT id, headword, headword_lower, part_of_speech, primary_ipa, all_ipas, audio_file, etymology, source_id FROM entries WHERE id IN (${placeholders});`,
+      `SELECT ${this.getEntrySelectColumns()} FROM entries e ${this.getEntryJoins()} WHERE e.id IN (${placeholders});`,
       numericIds
     );
     const hydrated = await this.hydrateEntries(rows);
@@ -365,48 +488,51 @@ export class EnglishSqliteRepository {
 
     try {
       await this.ensureOpen();
+      const entryCols = this.getEntrySelectColumns();
+      const entryJoins = this.getEntryJoins();
+      const posExpr = this.getPosColumnExpr();
 
       // 1. BROWSE MODE (bounded SQL pagination)
       if (!rawQuery) {
         const whereParts: string[] = [];
         const whereParams: unknown[] = [];
-
         if (posValues) {
-          whereParts.push(`part_of_speech IN (${posValues.map(() => '?').join(',')})`);
+          whereParts.push(`${posExpr} IN (${posValues.map(() => '?').join(',')})`);
           whereParams.push(...posValues);
         }
         if (letter) {
-          whereParts.push("headword_lower LIKE ? ESCAPE '\\'");
-          whereParams.push(`${escapeSqlLike(letter)}%`);
+          const pref = this.buildPrefixCondition(letter);
+          whereParts.push(pref.sql);
+          whereParams.push(...pref.params);
         }
-
         const whereSql = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+        const countJoin = this.schemaVersion >= 2 && posValues ? 'JOIN parts_of_speech pos ON pos.id = e.pos_id' : '';
         const countRows = await this.executor.query<{ cnt: number }>(
-          `SELECT COUNT(*) AS cnt FROM entries ${whereSql};`,
+          `SELECT COUNT(*) AS cnt FROM entries e ${countJoin} ${whereSql};`,
           whereParams
         );
         const totalCount = Number(countRows[0]?.cnt || 0);
 
         const entryRows = await this.executor.query<SqlEntryRow>(
-          `SELECT id, headword, headword_lower, part_of_speech, primary_ipa, all_ipas, audio_file, etymology, source_id
-           FROM entries ${whereSql}
-           ORDER BY headword_lower ASC, id ASC
+          `SELECT ${entryCols}
+           FROM entries e ${entryJoins} ${whereSql}
+           ORDER BY e.headword_lower ASC, e.id ASC
            LIMIT ? OFFSET ?;`,
           [...whereParams, limit, offset]
         );
 
         const hydrated = await this.hydrateEntries(entryRows);
-        const results: StandardSearchResult[] = hydrated.map((item) => ({
-          ...item,
-          matchedField: 'headword-normalized',
-          matchedTerm: item.entry.headword,
-          score: 10,
+        const results: StandardSearchResult[] = hydrated.map((h) => ({
+          ...h,
+          matchedField: 'headword-exact',
+          matchedTerm: h.entry.headword,
+          score: 100,
         }));
 
         return {
           status: 'browse',
           language: 'en',
-          query: '',
+          query: rawQuery,
           results,
           totalCount,
           hasMore: offset + results.length < totalCount,
@@ -416,56 +542,56 @@ export class EnglishSqliteRepository {
         };
       }
 
-      // 2. SEARCH MODE: Disjoint bounded tiers with exact offset/limit pagination
+      // 2. SEARCH MODE: Exact -> Prefix -> Word Forms -> FTS5 Definition Search
       const qLower = rawQuery.toLowerCase();
-      const qPrefixLike = `${escapeSqlLike(qLower)}%`;
-      const ftsQuery = this.fts5Supported ? buildFts5Query(rawQuery) : null;
-
-      const posClause = posValues ? `AND e.part_of_speech IN (${posValues.map(() => '?').join(',')})` : '';
+      const prefCond = this.buildPrefixCondition(qLower);
+      const notPrefCond = this.buildNotPrefixCondition(qLower);
+      const posClause = posValues ? `AND ${posExpr} IN (${posValues.map(() => '?').join(',')})` : '';
       const posParams = posValues || [];
+      const posJoinOnly = this.schemaVersion >= 2 && posValues ? 'JOIN parts_of_speech pos ON pos.id = e.pos_id' : '';
+      const ftsJoinCond = this.schemaVersion >= 2 ? 'e.id = f.rowid' : 'e.id = f.entry_id';
 
-      // Tier 1: Exact / case-insensitive headword match
       const exactCountRows = await this.executor.query<{ cnt: number }>(
-        `SELECT COUNT(*) AS cnt FROM entries e WHERE e.headword_lower = ? ${posClause};`,
+        `SELECT COUNT(*) AS cnt FROM entries e ${posJoinOnly} WHERE e.headword_lower = ? ${posClause};`,
         [qLower, ...posParams]
       );
       const c1 = Number(exactCountRows[0]?.cnt || 0);
 
-      // Tier 2: Prefix match (excluding exact)
       const prefixCountRows = await this.executor.query<{ cnt: number }>(
-        `SELECT COUNT(*) AS cnt FROM entries e WHERE e.headword_lower LIKE ? ESCAPE '\\' AND e.headword_lower != ? ${posClause};`,
-        [qPrefixLike, qLower, ...posParams]
+        `SELECT COUNT(*) AS cnt FROM entries e ${posJoinOnly} WHERE ${prefCond.sql} AND e.headword_lower != ? ${posClause};`,
+        [...prefCond.params, qLower, ...posParams]
       );
       const c2 = Number(prefixCountRows[0]?.cnt || 0);
 
-      // Tier 3: Inflected word forms match (excluding exact & prefix headword matches)
       const formsCountRows = await this.executor.query<{ cnt: number }>(
         `SELECT COUNT(DISTINCT e.id) AS cnt
          FROM word_forms wf
          JOIN entries e ON e.id = wf.entry_id
+         ${posJoinOnly}
          WHERE wf.form_lower = ?
            AND e.headword_lower != ?
-           AND e.headword_lower NOT LIKE ? ESCAPE '\\'
+           AND ${notPrefCond.sql}
            ${posClause};`,
-        [qLower, qLower, qPrefixLike, ...posParams]
+        [qLower, qLower, ...notPrefCond.params, ...posParams]
       );
       const c3 = Number(formsCountRows[0]?.cnt || 0);
 
-      // Tier 4: FTS5 definition search (excluding exact, prefix, and form hits)
+      const ftsQuery = this.fts5Supported ? buildFts5Query(rawQuery) : null;
       let c4 = 0;
       if (ftsQuery) {
         const ftsCountRows = await this.executor.query<{ cnt: number }>(
           `SELECT COUNT(*) AS cnt
            FROM entries_fts f
-           JOIN entries e ON e.id = f.entry_id
+           JOIN entries e ON ${ftsJoinCond}
+           ${posJoinOnly}
            WHERE entries_fts MATCH ?
              AND e.headword_lower != ?
-             AND e.headword_lower NOT LIKE ? ESCAPE '\\'
+             AND ${notPrefCond.sql}
              AND NOT EXISTS (
                SELECT 1 FROM word_forms wf WHERE wf.entry_id = e.id AND wf.form_lower = ?
              )
              ${posClause};`,
-          [ftsQuery, qLower, qPrefixLike, qLower, ...posParams]
+          [ftsQuery, qLower, ...notPrefCond.params, qLower, ...posParams]
         );
         c4 = Number(ftsCountRows[0]?.cnt || 0);
       }
@@ -482,24 +608,24 @@ export class EnglishSqliteRepository {
           offset,
           limit,
           engineSource: 'sqlite-en',
-          message: `No matching entry found for “${rawQuery}” in the offline English SQLite dictionary.`,
+          message: `No English entries matched "${rawQuery}" in the offline dictionary.`,
         };
       }
 
-      type TierMatch = {
+      const matchedItems: Array<{
         row: SqlEntryRow;
         matchedField: StandardSearchResult['matchedField'];
         matchedTerm: string;
         score: number;
-      };
-      const matchedItems: TierMatch[] = [];
+      }> = [];
 
-      const takeSlice = (tierStart: number, tierSize: number): { localOffset: number; localLimit: number } | null => {
-        if (tierSize <= 0) return null;
-        const pageEnd = offset + limit;
-        const tierEnd = tierStart + tierSize;
-        const overlapStart = Math.max(offset, tierStart);
-        const overlapEnd = Math.min(pageEnd, tierEnd);
+      const takeSlice = (tierStart: number, tierCount: number): { localOffset: number; localLimit: number } | null => {
+        if (tierCount <= 0) return null;
+        const winStart = offset;
+        const winEnd = offset + limit;
+        const tierEnd = tierStart + tierCount;
+        const overlapStart = Math.max(winStart, tierStart);
+        const overlapEnd = Math.min(winEnd, tierEnd);
         if (overlapStart >= overlapEnd) return null;
         return {
           localOffset: overlapStart - tierStart,
@@ -510,8 +636,8 @@ export class EnglishSqliteRepository {
       const s1 = takeSlice(0, c1);
       if (s1) {
         const rows = await this.executor.query<SqlEntryRow>(
-          `SELECT e.id, e.headword, e.headword_lower, e.part_of_speech, e.primary_ipa, e.all_ipas, e.audio_file, e.etymology, e.source_id
-           FROM entries e
+          `SELECT ${entryCols}
+           FROM entries e ${entryJoins}
            WHERE e.headword_lower = ? ${posClause}
            ORDER BY e.id ASC
            LIMIT ? OFFSET ?;`,
@@ -530,12 +656,12 @@ export class EnglishSqliteRepository {
       const s2 = takeSlice(c1, c2);
       if (s2) {
         const rows = await this.executor.query<SqlEntryRow>(
-          `SELECT e.id, e.headword, e.headword_lower, e.part_of_speech, e.primary_ipa, e.all_ipas, e.audio_file, e.etymology, e.source_id
-           FROM entries e
-           WHERE e.headword_lower LIKE ? ESCAPE '\\' AND e.headword_lower != ? ${posClause}
+          `SELECT ${entryCols}
+           FROM entries e ${entryJoins}
+           WHERE ${prefCond.sql} AND e.headword_lower != ? ${posClause}
            ORDER BY length(e.headword_lower) ASC, e.headword_lower ASC, e.id ASC
            LIMIT ? OFFSET ?;`,
-          [qPrefixLike, qLower, ...posParams, s2.localLimit, s2.localOffset]
+          [...prefCond.params, qLower, ...posParams, s2.localLimit, s2.localOffset]
         );
         for (const r of rows) {
           matchedItems.push({
@@ -549,19 +675,21 @@ export class EnglishSqliteRepository {
 
       const s3 = takeSlice(c1 + c2, c3);
       if (s3) {
+        const wfFormExpr = this.schemaVersion >= 2 ? 'COALESCE(wf.form, wf.form_lower)' : 'wf.form';
         const rows = await this.executor.query<SqlEntryRow & { matched_form: string }>(
-          `SELECT e.id, e.headword, e.headword_lower, e.part_of_speech, e.primary_ipa, e.all_ipas, e.audio_file, e.etymology, e.source_id,
-                  MIN(wf.form) AS matched_form
+          `SELECT ${entryCols},
+                  MIN(${wfFormExpr}) AS matched_form
            FROM word_forms wf
            JOIN entries e ON e.id = wf.entry_id
+           ${entryJoins}
            WHERE wf.form_lower = ?
              AND e.headword_lower != ?
-             AND e.headword_lower NOT LIKE ? ESCAPE '\\'
+             AND ${notPrefCond.sql}
              ${posClause}
            GROUP BY e.id
            ORDER BY e.headword_lower ASC, e.id ASC
            LIMIT ? OFFSET ?;`,
-          [qLower, qLower, qPrefixLike, ...posParams, s3.localLimit, s3.localOffset]
+          [qLower, qLower, ...notPrefCond.params, ...posParams, s3.localLimit, s3.localOffset]
         );
         for (const r of rows) {
           matchedItems.push({
@@ -576,19 +704,20 @@ export class EnglishSqliteRepository {
       const s4 = ftsQuery ? takeSlice(c1 + c2 + c3, c4) : null;
       if (s4 && ftsQuery) {
         const rows = await this.executor.query<SqlEntryRow>(
-          `SELECT e.id, e.headword, e.headword_lower, e.part_of_speech, e.primary_ipa, e.all_ipas, e.audio_file, e.etymology, e.source_id
+          `SELECT ${entryCols}
            FROM entries_fts f
-           JOIN entries e ON e.id = f.entry_id
+           JOIN entries e ON ${ftsJoinCond}
+           ${entryJoins}
            WHERE entries_fts MATCH ?
              AND e.headword_lower != ?
-             AND e.headword_lower NOT LIKE ? ESCAPE '\\'
+             AND ${notPrefCond.sql}
              AND NOT EXISTS (
                SELECT 1 FROM word_forms wf WHERE wf.entry_id = e.id AND wf.form_lower = ?
              )
              ${posClause}
            ORDER BY bm25(entries_fts) ASC, e.id ASC
            LIMIT ? OFFSET ?;`,
-          [ftsQuery, qLower, qPrefixLike, qLower, ...posParams, s4.localLimit, s4.localOffset]
+          [ftsQuery, qLower, ...notPrefCond.params, qLower, ...posParams, s4.localLimit, s4.localOffset]
         );
         for (const r of rows) {
           matchedItems.push({
@@ -647,25 +776,36 @@ export class EnglishSqliteRepository {
     entryRows: SqlEntryRow[]
   ): Promise<Array<{ entry: WordEntry; senses: WordSense[]; morphologicalForms: MorphologicalForm[] }>> {
     if (entryRows.length === 0) return [];
-
     const entryIds = entryRows.map((r) => r.id);
     const placeholders = entryIds.map(() => '?').join(',');
 
+    const sensesSql =
+      this.schemaVersion >= 2
+        ? `SELECT s.id, s.entry_id, s.sense_number, s.definition, ts.tags_json AS tags, s.examples, s.synonyms, s.antonyms
+           FROM senses s
+           LEFT JOIN tag_sets ts ON ts.id = s.tags_id
+           WHERE s.entry_id IN (${placeholders})
+           ORDER BY s.entry_id ASC, s.sense_number ASC;`
+        : `SELECT id, entry_id, sense_number, definition, tags, examples, synonyms, antonyms
+           FROM senses
+           WHERE entry_id IN (${placeholders})
+           ORDER BY entry_id ASC, sense_number ASC;`;
+
+    const formsSql =
+      this.schemaVersion >= 2
+        ? `SELECT wf.entry_id, COALESCE(wf.form, wf.form_lower) AS form, wf.form_lower, ts.tags_json AS tags
+           FROM word_forms wf
+           LEFT JOIN tag_sets ts ON ts.id = wf.tags_id
+           WHERE wf.entry_id IN (${placeholders})
+           ORDER BY wf.id ASC;`
+        : `SELECT entry_id, form, form_lower, tags
+           FROM word_forms
+           WHERE entry_id IN (${placeholders})
+           ORDER BY id ASC;`;
+
     const [senseRows, formRows] = await Promise.all([
-      this.executor.query<SqlSenseRow>(
-        `SELECT id, entry_id, sense_number, definition, tags, examples, synonyms, antonyms
-         FROM senses
-         WHERE entry_id IN (${placeholders})
-         ORDER BY entry_id ASC, sense_number ASC;`,
-        entryIds
-      ),
-      this.executor.query<SqlWordFormRow>(
-        `SELECT entry_id, form, form_lower, tags
-         FROM word_forms
-         WHERE entry_id IN (${placeholders})
-         ORDER BY id ASC;`,
-        entryIds
-      ),
+      this.executor.query<SqlSenseRow>(sensesSql, entryIds),
+      this.executor.query<SqlWordFormRow>(formsSql, entryIds),
     ]);
 
     const sensesByEntryId = new Map<number, SqlSenseRow[]>();
@@ -688,7 +828,7 @@ export class EnglishSqliteRepository {
       const entryStringId = `en-sqlite-${row.id}`;
       const rawSenses = sensesByEntryId.get(row.id) || [];
       const rawForms = formsByEntryId.get(row.id) || [];
-      const allIpas = safeJsonParse<PronunciationVariant[]>(row.all_ipas, []);
+      const allIpas = parseAllIpas(row.all_ipas);
 
       const synonymsSet = new Set<string>();
       const antonymsSet = new Set<string>();
@@ -697,7 +837,7 @@ export class EnglishSqliteRepository {
 
       const mappedSenses: WordSense[] = rawSenses.map((s) => {
         const sTags = safeJsonParse<string[]>(s.tags, []);
-        const sExamples = safeJsonParse<Array<{ text: string; ref?: string }>>(s.examples, []);
+        const mappedExamples = parseSenseExamples(s.examples);
         const sSynonyms = safeJsonParse<string[]>(s.synonyms, []);
         const sAntonyms = safeJsonParse<string[]>(s.antonyms, []);
 
@@ -708,14 +848,6 @@ export class EnglishSqliteRepository {
         for (const ant of sAntonyms) {
           if (ant) antonymsSet.add(ant);
         }
-
-        const mappedExamples: ExampleSentence[] = sExamples
-          .filter((ex) => ex && ex.text)
-          .map((ex) => ({
-            sourceText: ex.text,
-            targetText: '',
-            culturalContext: ex.ref ? `Reference: ${ex.ref}` : undefined,
-          }));
         for (const ex of mappedExamples) {
           if (allExamples.length < 8) {
             allExamples.push(ex);
@@ -771,8 +903,7 @@ export class EnglishSqliteRepository {
         antonyms: Array.from(antonymsSet),
         verifiedOffline: true,
         verificationStatus: 'verified',
-        sourceAttribution:
-          meta?.sourceName || ENGLISH_PACK_MANIFEST.attribution.sourceName,
+        sourceAttribution: meta?.sourceName || ENGLISH_PACK_MANIFEST.attribution.sourceName,
         license: meta?.sourceLicense || ENGLISH_PACK_MANIFEST.attribution.license,
         datasetVersion: meta?.packVersion || ENGLISH_PACK_MANIFEST.packVersion,
         tags: Array.from(allTags),
@@ -788,7 +919,6 @@ export class EnglishSqliteRepository {
 
   public async runBenchmark(): Promise<EnglishBenchmarkReport> {
     await this.closeConnection();
-
     const status = englishPackService.getCachedStatus();
     const targetPath = this.executor.getDbPath() || status.dbPath;
 

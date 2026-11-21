@@ -2,6 +2,7 @@ export interface EnglishPackManifest {
   packId: string;
   targetLanguage: 'en';
   format: 'sqlite-gzip';
+  schemaVersion: number;
   packVersion: string;
   datasetVersion: string;
   releaseTag: string;
@@ -100,15 +101,16 @@ export const ENGLISH_PACK_MANIFEST: EnglishPackManifest = {
   packId: 'en-wiktionary-sqlite',
   targetLanguage: 'en',
   format: 'sqlite-gzip',
-  packVersion: '0.2.0',
-  datasetVersion: '2026.11-wiktionary-en-v0.2.0',
-  releaseTag: 'prototype-en-v0.2.0',
+  schemaVersion: 2,
+  packVersion: '0.3.0',
+  datasetVersion: '2026.11-wiktionary-en-v0.3.0',
+  releaseTag: 'prototype-en-v0.3.0',
   downloadUrl:
-    'https://github.com/ahmad-maxai/lexica-dictionary-new/releases/download/prototype-en-v0.2.0/lexica_english.db.gz',
-  compressedSizeBytes: 58190048,
-  compressedSha256: '244252ca0e660796ab27b446164696dda77195c404c64f42f9075c1192bd0cfb',
-  uncompressedSizeBytes: 165916672,
-  uncompressedSha256: '5c0b56064fdda54db58b397729ec83cf74fba9f6eeb6ec7a4fd793973ddb42ea',
+    'https://github.com/ahmad-maxai/lexica-dictionary-new/releases/download/prototype-en-v0.3.0/lexica_english.db.gz',
+  compressedSizeBytes: 47000179,
+  compressedSha256: 'f76103134a01d8e97b113771802b352f0ee96f90a38f20470f386378ecaa7c0e',
+  uncompressedSizeBytes: 110706688,
+  uncompressedSha256: '6cd13efbd0754ce272992fb79951d5d9389977fdcc610126229c754854fefdfd',
   acceptedEntries: 75000,
   distinctHeadwords: 45317,
   totalSenses: 190672,

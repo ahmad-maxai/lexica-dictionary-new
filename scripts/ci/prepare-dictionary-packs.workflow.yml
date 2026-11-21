@@ -1,0 +1,46 @@
+# Template GitHub Actions workflow for automated dataset compilation & release publishing.
+# Copy to .github/workflows/prepare-dictionary-packs.yml with a workflow-scoped token or GitHub UI.
+name: Prepare & Publish Dictionary Packs
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag (e.g., prototype-en-v0.3.0)'
+        required: true
+        default: 'prototype-en-v0.3.0'
+      kaikki_url:
+        description: 'Source Kaikki English JSONL.gz URL'
+        required: true
+        default: 'https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl'
+
+permissions:
+  contents: write
+
+jobs:
+  build-pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download & Compile Dictionary Pack
+        run: |
+          mkdir -p /tmp/pack_build
+          curl -sSL "${{ inputs.kaikki_url }}" -o /tmp/kaikki-English.jsonl
+          python3 scripts/prepare_pack_release.py \
+            --source /tmp/kaikki-English.jsonl \
+            --out-dir /tmp/pack_build \
+            --release-tag "${{ inputs.release_tag }}" \
+            --repo "${{ github.repository }}"
+      - name: Publish Versioned GitHub Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          prerelease: true
+          files: |
+            /tmp/pack_build/lexica_english.db.gz
+            /tmp/pack_build/pack_manifest.json
+            /tmp/pack_build/verification_report.json
+            /tmp/pack_build/storage_audit_report.json

@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { LanguageCode, InstalledPack } from '../types/dictionary';
+import { exportOfflineBackup, importOfflineBackup } from '../services/backupService';
 import { LANGUAGE_LIST } from '../data/languages';
 import { dictionaryDb } from '../services/dictionaryDatabase';
 import { ENGLISH_PACK_MANIFEST, isEnglishSqliteIntegrationEnabled } from '../config/englishDictionaryConfig';
@@ -31,6 +32,9 @@ import {
   ShieldCheck,
   Trash2,
   Gauge,
+  Archive,
+  Upload,
+  Download,
 } from 'lucide-react';
 
 interface LanguageLibraryScreenProps {
@@ -38,12 +42,14 @@ interface LanguageLibraryScreenProps {
   installedPacks: Record<LanguageCode, InstalledPack>;
   onTogglePack: (code: LanguageCode) => void;
   onSetLanguages: (source: LanguageCode, target: LanguageCode) => void;
+  onPreferencesUpdated?: () => void;
 }
 
 export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
   interfaceLang,
   installedPacks,
   onTogglePack,
+  onPreferencesUpdated,
 }) => {
   const [expandedLang, setExpandedLang] = useState<LanguageCode | null>('en');
   const [downloadingCode, setDownloadingCode] = useState<LanguageCode | null>(null);
@@ -57,6 +63,12 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
   const [englishVerifyMsg, setEnglishVerifyMsg] = useState<string | null>(null);
   const [benchmarkReport, setBenchmarkReport] = useState<EnglishBenchmarkReport | null>(null);
   const [isRunningBenchmark, setIsRunningBenchmark] = useState(false);
+  const [isBackupBusy, setIsBackupBusy] = useState(false);
+  const [backupStatusMsg, setBackupStatusMsg] = useState<string | null>(null);
+  const [backupErrorMsg, setBackupErrorMsg] = useState<string | null>(null);
+  const [needsConflictReplace, setNeedsConflictReplace] = useState(false);
+  const [pendingWebBackupFile, setPendingWebBackupFile] = useState<File | null>(null);
+  const backupFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const unsubStatus = englishPackService.subscribeStatus(setEnglishStatus);
@@ -159,6 +171,84 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
       setIsRunningBenchmark(false);
     }
   };
+
+  const handleExportBackup = async () => {
+    setBackupErrorMsg(null);
+    setBackupStatusMsg(null);
+    setNeedsConflictReplace(false);
+    setIsBackupBusy(true);
+    try {
+      const summary = await exportOfflineBackup({ includeEnglishPack: englishStatus.installed });
+      const sizeText = summary.includesEnglishSqlite
+        ? `${(summary.englishDbBytes / (1024 * 1024)).toFixed(2)} MiB SQLite + 6 bundled packs`
+        : '6 bundled language packs & saved study data';
+      setBackupStatusMsg(
+        `Offline backup saved (${sizeText}). SHA-256 checksum recorded in archive manifest.`
+      );
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      if (code !== 'BACKUP_CANCELLED') {
+        setBackupErrorMsg(err instanceof Error ? err.message : 'Failed to export offline backup.');
+      }
+    } finally {
+      setIsBackupBusy(false);
+    }
+  };
+
+  const runRestoreFromBackup = async (replaceExisting: boolean, webFile?: File) => {
+    setBackupErrorMsg(null);
+    setBackupStatusMsg(null);
+    setIsBackupBusy(true);
+    try {
+      const summary = await importOfflineBackup({ replaceExisting, webFile });
+      setNeedsConflictReplace(false);
+      setPendingWebBackupFile(null);
+      onPreferencesUpdated?.();
+      const enDetail = summary.includesEnglishSqlite
+        ? ` + English SQLite v${summary.englishDatasetVersion} (${summary.englishEntriesCount.toLocaleString()} entries)`
+        : '';
+      setBackupStatusMsg(
+        `Restored ${summary.restoredPackCount} pack state(s), ${summary.restoredSavedWordsCount} saved words, and ${summary.restoredCollectionsCount} collections offline${enDetail}.`
+      );
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      if (code === 'BACKUP_CANCELLED') {
+        return;
+      }
+      if (code === 'BACKUP_DUPLICATE_PACK' || code === 'BACKUP_CONFLICT_EXISTS') {
+        setNeedsConflictReplace(true);
+        if (webFile) {
+          setPendingWebBackupFile(webFile);
+        }
+      } else {
+        setNeedsConflictReplace(false);
+      }
+      setBackupErrorMsg(err instanceof Error ? err.message : 'Failed to restore backup archive.');
+    } finally {
+      setIsBackupBusy(false);
+    }
+  };
+
+  const handleRestoreBackupClick = () => {
+    if (isNativeAndroid) {
+      void runRestoreFromBackup(false);
+      return;
+    }
+    backupFileInputRef.current?.click();
+  };
+
+  const handleWebBackupFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    void runRestoreFromBackup(false, file);
+  };
+
+  const isBackupProgressStage =
+    englishProgress.stage === 'exporting_backup' ||
+    englishProgress.stage === 'reading_backup' ||
+    englishProgress.stage === 'verifying_backup' ||
+    englishProgress.stage === 'restoring_backup';
 
   const handleDownloadToggle = (code: LanguageCode) => {
     if (code === 'en' && useSqliteEnglishCard) {
@@ -566,6 +656,109 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
           );
         })}
       </div>
+
+      {/* Offline Backup & Recovery (Storage Access Framework / Local File) */}
+      <section className="mt-6 rounded-3xl bg-white dark:bg-[#15231D] border border-slate-200/90 dark:border-slate-800 shadow-xs p-5 space-y-3.5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <Archive className="w-4 h-4 text-[#204031] dark:text-[#7E9E88]" />
+              <span>Offline Backup &amp; Recovery</span>
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Export or restore installed dictionary packs, saved vocabulary, and collections to device storage without an internet connection.
+            </p>
+          </div>
+          <span className="text-[11px] font-mono px-2 py-0.5 rounded-lg bg-[#EEF4F0] dark:bg-[#1F372C] text-[#204031] dark:text-[#7E9E88]">
+            {isNativeAndroid ? '.lexicabackup (SAF)' : '.lexicabackup.json'}
+          </span>
+        </div>
+
+        <input
+          ref={backupFileInputRef}
+          type="file"
+          accept=".json,.lexicabackup.json,application/json"
+          className="hidden"
+          onChange={handleWebBackupFileSelected}
+        />
+
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            disabled={isBackupBusy || englishStatus.inProgress}
+            onClick={() => void handleExportBackup()}
+            className="h-10 px-4 rounded-xl bg-[#1B382B] hover:bg-[#142A20] text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>{isBackupBusy ? 'Working...' : 'Export Backup'}</span>
+          </button>
+
+          <button
+            type="button"
+            disabled={isBackupBusy || englishStatus.inProgress}
+            onClick={handleRestoreBackupClick}
+            className="h-10 px-4 rounded-xl bg-[#EEF4F0] dark:bg-[#1F372C] text-[#204031] dark:text-[#7E9E88] border border-slate-200 dark:border-slate-700 text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span>Restore Backup</span>
+          </button>
+        </div>
+
+        {isBackupProgressStage && isBackupBusy && (
+          <div className="p-3 rounded-2xl bg-[#EEF4F0] dark:bg-[#172B22] border border-[#204031]/20 dark:border-[#7E9E88]/30 space-y-1.5">
+            <div className="flex items-center justify-between text-xs font-medium text-[#204031] dark:text-[#7E9E88]">
+              <span>{englishProgress.message}</span>
+              <span dir="ltr" className="font-mono tabular-nums">
+                {englishProgress.percent}%
+              </span>
+            </div>
+            <div className="w-full h-2 rounded-full bg-white dark:bg-[#101C16] overflow-hidden">
+              <div
+                className="h-full bg-[#204031] dark:bg-[#7E9E88] transition-all duration-200"
+                style={{ width: `${Math.max(4, Math.min(100, englishProgress.percent))}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {backupStatusMsg && (
+          <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-xs text-emerald-800 dark:text-emerald-200">
+            {backupStatusMsg}
+          </div>
+        )}
+
+        {backupErrorMsg && (
+          <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 space-y-2 text-xs text-rose-800 dark:text-rose-200">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" />
+              <span>{backupErrorMsg}</span>
+            </div>
+            {needsConflictReplace && (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={isBackupBusy}
+                  onClick={() => void runRestoreFromBackup(true, pendingWebBackupFile || undefined)}
+                  className="px-3 py-1.5 rounded-lg bg-rose-700 text-white text-[11px] font-semibold cursor-pointer disabled:opacity-60"
+                >
+                  Overwrite Existing &amp; Restore
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNeedsConflictReplace(false);
+                    setBackupErrorMsg(null);
+                    setPendingWebBackupFile(null);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#15231D] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-slate-700 dark:text-slate-300 cursor-pointer"
+                >
+                  Keep Current
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
     </div>
   );
 };

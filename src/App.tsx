@@ -149,6 +149,11 @@ export default function App() {
     setPreferences(StorageService.getPreferences());
   };
 
+  const handlePreferencesUpdated = () => {
+    setPreferences(StorageService.getPreferences());
+    setCollections(StorageService.getCollections());
+  };
+
   const handleSaveCollection = (collection: Collection) => {
     const updated = StorageService.saveCollection(collection);
     setCollections(updated);
@@ -264,6 +269,7 @@ export default function App() {
             installedPacks={preferences.installedPacks}
             onTogglePack={handleTogglePack}
             onSetLanguages={handleSetLanguages}
+            onPreferencesUpdated={handlePreferencesUpdated}
           />
         )}
       </main>
