@@ -24,6 +24,11 @@ export async function searchEnglishStandardUnified(
     };
   }
 
+  // Ensure Android pack status is loaded before checking active pack (prevents cold-start race)
+  if (englishPackService.isNativeAndroid()) {
+    await englishPackService.ensureStatusLoaded();
+  }
+
   // Use native Android SQLite pack (or injected test SQLite executor) when active
   if (englishSqliteRepo.isPackActive()) {
     return englishSqliteRepo.searchStandard(query, {

@@ -1,4 +1,7 @@
 export interface EnglishPackManifest {
+  packId: string;
+  targetLanguage: 'en';
+  format: 'sqlite-gzip';
   packVersion: string;
   datasetVersion: string;
   releaseTag: string;
@@ -19,7 +22,84 @@ export interface EnglishPackManifest {
   };
 }
 
+export interface ManifestValidationResult {
+  valid: boolean;
+  missingOrInvalidFields: string[];
+  message: string;
+}
+
+const SHA256_HEX_REGEX = /^[a-f0-9]{64}$/i;
+
+export function validateEnglishPackManifest(
+  manifest: Partial<EnglishPackManifest> | null | undefined
+): ManifestValidationResult {
+  const missing: string[] = [];
+  if (!manifest) {
+    return {
+      valid: false,
+      missingOrInvalidFields: ['manifest'],
+      message: 'INVALID_MANIFEST: Pack manifest object is missing.',
+    };
+  }
+  if (!manifest.packId || typeof manifest.packId !== 'string' || !manifest.packId.trim()) {
+    missing.push('packId');
+  }
+  if (!manifest.packVersion || typeof manifest.packVersion !== 'string' || !manifest.packVersion.trim()) {
+    missing.push('packVersion');
+  }
+  if (!manifest.datasetVersion || typeof manifest.datasetVersion !== 'string' || !manifest.datasetVersion.trim()) {
+    missing.push('datasetVersion');
+  }
+  if (
+    !manifest.downloadUrl ||
+    typeof manifest.downloadUrl !== 'string' ||
+    !/^https:\/\//i.test(manifest.downloadUrl.trim())
+  ) {
+    missing.push('downloadUrl');
+  }
+  if (
+    typeof manifest.compressedSizeBytes !== 'number' ||
+    !Number.isFinite(manifest.compressedSizeBytes) ||
+    manifest.compressedSizeBytes <= 0
+  ) {
+    missing.push('compressedSizeBytes');
+  }
+  if (
+    typeof manifest.uncompressedSizeBytes !== 'number' ||
+    !Number.isFinite(manifest.uncompressedSizeBytes) ||
+    manifest.uncompressedSizeBytes <= 0
+  ) {
+    missing.push('uncompressedSizeBytes');
+  }
+  if (
+    !manifest.compressedSha256 ||
+    typeof manifest.compressedSha256 !== 'string' ||
+    !SHA256_HEX_REGEX.test(manifest.compressedSha256.trim())
+  ) {
+    missing.push('compressedSha256');
+  }
+  if (
+    !manifest.uncompressedSha256 ||
+    typeof manifest.uncompressedSha256 !== 'string' ||
+    !SHA256_HEX_REGEX.test(manifest.uncompressedSha256.trim())
+  ) {
+    missing.push('uncompressedSha256');
+  }
+
+  return {
+    valid: missing.length === 0,
+    missingOrInvalidFields: missing,
+    message:
+      missing.length === 0
+        ? 'Manifest validated.'
+        : `INVALID_MANIFEST: Invalid or missing field(s): ${missing.join(', ')}.`,
+  };
+}
+
 export const ENGLISH_PACK_MANIFEST: EnglishPackManifest = {
+  packId: 'en-wiktionary-sqlite',
+  targetLanguage: 'en',
+  format: 'sqlite-gzip',
   packVersion: '0.2.0',
   datasetVersion: '2026.11-wiktionary-en-v0.2.0',
   releaseTag: 'prototype-en-v0.2.0',

@@ -92,6 +92,7 @@ function createCompatDb(dbPath: string, readOnly = false): NodeSqliteDatabase {
 }
 import {
   ENGLISH_PACK_MANIFEST,
+  validateEnglishPackManifest,
   setEnglishSqliteIntegrationEnabled,
 } from '../src/config/englishDictionaryConfig';
 import { dictionaryDb } from '../src/services/dictionaryDatabase';
@@ -618,6 +619,139 @@ async function main(): Promise<void> {
         assert.strictEqual(meta?.totalSenses, 190672);
       });
     }
+
+    await runAsyncTest('4.10 Manifest validation rejects invalid/missing fields cleanly before native call', async () => {
+      const liveValidation = validateEnglishPackManifest(ENGLISH_PACK_MANIFEST);
+      assert.strictEqual(liveValidation.valid, true, liveValidation.message);
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.packId, 'en-wiktionary-sqlite');
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.compressedSizeBytes, 58190048);
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.uncompressedSizeBytes, 165916672);
+      assert(/^[a-f0-9]{64}$/.test(ENGLISH_PACK_MANIFEST.compressedSha256));
+      assert(/^[a-f0-9]{64}$/.test(ENGLISH_PACK_MANIFEST.uncompressedSha256));
+
+      let nativeCalled = false;
+      englishPackService.setTestingOverrides({
+        platform: 'android',
+        manifest: {
+          ...ENGLISH_PACK_MANIFEST,
+          downloadUrl: 'http://insecure.example.com/bad.db.gz',
+          compressedSizeBytes: 0,
+          compressedSha256: 'not-a-sha256',
+        },
+        nativeBridge: {
+          async getPackStatus() { return { installed: false }; },
+          async installPack() { nativeCalled = true; return { installed: true }; },
+          async cancelInstall() { return { cancelled: true }; },
+          async removePack() { return { removed: true, availableBytes: 500_000_000 }; },
+          async verifyInstalledPack() { return { installed: false }; },
+          async getMemoryMetrics() {
+            return { javaHeapUsedBytes: 0, javaHeapMaxBytes: 0, nativeHeapAllocatedBytes: 0, systemAvailMemBytes: 0, systemTotalMemBytes: 0, lowMemory: false };
+          },
+          async addListener() { return { remove: async () => {} }; },
+        },
+      });
+
+      let caught: unknown = null;
+      try {
+        await englishPackService.installEnglishPack();
+      } catch (err) {
+        caught = err;
+      }
+      assert.strictEqual(nativeCalled, false, 'Invalid manifest must fail before calling native installPack');
+      assert(caught instanceof EnglishPackInstallError);
+      assert.strictEqual(caught.code, 'INVALID_MANIFEST');
+      assert(caught.message.includes('downloadUrl'));
+      assert(caught.message.includes('compressedSizeBytes'));
+      assert(caught.message.includes('compressedSha256'));
+    });
+
+    await runAsyncTest('4.11 Retry recovery without restart, startup status persistence & other 6 packs', async () => {
+      englishPackService.resetTestingOverrides();
+      let attempts = 0;
+      let persistedInstalled = false;
+      let partialBytes = 0;
+      const exec = new NodeSqliteExecutor(tmpDbPath);
+
+      const bridge: EnglishPackInstallerNative = {
+        async getPackStatus() {
+          return {
+            installed: persistedInstalled,
+            dbPath: persistedInstalled ? tmpDbPath : '',
+            dbSizeBytes: persistedInstalled ? ENGLISH_PACK_MANIFEST.uncompressedSizeBytes : 0,
+            partialBytes,
+            availableBytes: 1_500_000_000,
+            inProgress: false,
+            datasetVersion: persistedInstalled ? ENGLISH_PACK_MANIFEST.packVersion : '',
+            acceptedEntries: persistedInstalled ? ENGLISH_PACK_MANIFEST.acceptedEntries : 0,
+            distinctHeadwords: persistedInstalled ? ENGLISH_PACK_MANIFEST.distinctHeadwords : 0,
+            totalSenses: persistedInstalled ? ENGLISH_PACK_MANIFEST.totalSenses : 0,
+          };
+        },
+        async installPack(options) {
+          attempts++;
+          assert.strictEqual(options.url, ENGLISH_PACK_MANIFEST.downloadUrl);
+          assert.strictEqual(options.compressedSizeBytes, ENGLISH_PACK_MANIFEST.compressedSizeBytes);
+          assert.strictEqual(options.uncompressedSizeBytes, ENGLISH_PACK_MANIFEST.uncompressedSizeBytes);
+          assert.strictEqual(options.compressedSha256, ENGLISH_PACK_MANIFEST.compressedSha256);
+          assert.strictEqual(options.uncompressedSha256, ENGLISH_PACK_MANIFEST.uncompressedSha256);
+          if (attempts === 1) {
+            partialBytes = 15_000_000;
+            throw { code: 'PACK_INSTALL_FAILED', message: 'Download interrupted at 15000000 bytes.' };
+          }
+          partialBytes = 0;
+          persistedInstalled = true;
+          return {
+            installed: true,
+            dbPath: tmpDbPath,
+            dbSizeBytes: ENGLISH_PACK_MANIFEST.uncompressedSizeBytes,
+            datasetVersion: ENGLISH_PACK_MANIFEST.packVersion,
+            acceptedEntries: ENGLISH_PACK_MANIFEST.acceptedEntries,
+            distinctHeadwords: ENGLISH_PACK_MANIFEST.distinctHeadwords,
+            totalSenses: ENGLISH_PACK_MANIFEST.totalSenses,
+          };
+        },
+        async cancelInstall() { return { cancelled: true }; },
+        async removePack() { persistedInstalled = false; return { removed: true, availableBytes: 1_500_000_000 }; },
+        async verifyInstalledPack() { return { installed: persistedInstalled }; },
+        async getMemoryMetrics() {
+          return { javaHeapUsedBytes: 10_000_000, javaHeapMaxBytes: 256_000_000, nativeHeapAllocatedBytes: 20_000_000, systemAvailMemBytes: 1_000_000_000, systemTotalMemBytes: 4_000_000_000, lowMemory: false };
+        },
+        async addListener() { return { remove: async () => {} }; },
+      };
+
+      englishPackService.setTestingOverrides({ platform: 'android', nativeBridge: bridge });
+      // Attempt 1 fails mid-download
+      let err1: unknown = null;
+      try {
+        await englishPackService.installEnglishPack();
+      } catch (e) {
+        err1 = e;
+      }
+      assert(err1 instanceof EnglishPackInstallError);
+      assert.strictEqual(englishPackService.getCachedStatus().partialBytes, 15_000_000);
+
+      // Immediate Retry without app restart succeeds
+      const statusAfterRetry = await englishPackService.installEnglishPack();
+      assert.strictEqual(statusAfterRetry.installed, true);
+      assert.strictEqual(statusAfterRetry.error, null);
+      assert.strictEqual(attempts, 2);
+
+      // Simulate cold restart where cached status is reset but persisted DB exists natively
+      englishPackService.resetTestingOverrides();
+      englishPackService.setTestingOverrides({ platform: 'android', nativeBridge: bridge });
+      englishSqliteRepo.setExecutorForTest(exec);
+      const coldBootSearch = await searchEnglishStandardUnified('epistemology');
+      assert.strictEqual(coldBootSearch.status, 'ok');
+      assert.strictEqual(coldBootSearch.results[0].entry.headword, 'epistemology');
+      assert.strictEqual(englishPackService.getCachedStatus().installed, true);
+
+      // Verify other 6 language packs (ha, yo, ff, ar, fr, zh) remain installed and unaffected
+      const stats = dictionaryDb.getLanguagePackStats();
+      for (const code of ['ha', 'yo', 'ff', 'ar', 'fr', 'zh'] as const) {
+        assert.strictEqual(stats[code].isInstalled, true, `${code} pack must remain installed`);
+        assert(stats[code].loadedEntriesCount > 0, `${code} must retain offline entries`);
+      }
+    });
   } finally {
     englishSqliteRepo.setExecutorForTest(null);
     englishPackService.resetTestingOverrides();

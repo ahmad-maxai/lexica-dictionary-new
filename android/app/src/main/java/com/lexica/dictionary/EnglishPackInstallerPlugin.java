@@ -21,7 +21,10 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -40,6 +43,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
     private static final long STORAGE_SAFETY_MARGIN_BYTES = 20L * 1024L * 1024L;
     private static final int IO_BUFFER_SIZE = 32768;
     private static final int MAX_REDIRECTS = 8;
+    private static final Pattern SHA256_HEX_PATTERN = Pattern.compile("^[0-9a-fA-F]{64}$");
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean installInProgress = new AtomicBoolean(false);
@@ -101,15 +105,34 @@ public class EnglishPackInstallerPlugin extends Plugin {
 
     @PluginMethod
     public void installPack(PluginCall call) {
-        String downloadUrl = call.getString("url", "");
-        String compressedSha256 = call.getString("compressedSha256", "");
-        String uncompressedSha256 = call.getString("uncompressedSha256", "");
-        long compressedSizeBytes = call.getLong("compressedSizeBytes", 0L);
-        long uncompressedSizeBytes = call.getLong("uncompressedSizeBytes", 0L);
+        String downloadUrl = headerOrEmpty(call.getString("url", ""));
+        String compressedSha256 = headerOrEmpty(call.getString("compressedSha256", ""));
+        String uncompressedSha256 = headerOrEmpty(call.getString("uncompressedSha256", ""));
+        // Note: Capacitor PluginCall.getLong() returns defaultValue when org.json parses <=2GB integers as Integer.
+        long compressedSizeBytes = extractPositiveLong(call, "compressedSizeBytes");
+        long uncompressedSizeBytes = extractPositiveLong(call, "uncompressedSizeBytes");
 
-        if (downloadUrl.isEmpty() || compressedSha256.isEmpty() || uncompressedSha256.isEmpty()
-                || compressedSizeBytes <= 0 || uncompressedSizeBytes <= 0) {
-            call.reject("INVALID_MANIFEST: Missing pack URL, size, or SHA-256 checksums.", "INVALID_MANIFEST");
+        List<String> invalidFields = new ArrayList<>();
+        if (downloadUrl.isEmpty() || !downloadUrl.toLowerCase(Locale.US).startsWith("https://")) {
+            invalidFields.add("url");
+        }
+        if (!SHA256_HEX_PATTERN.matcher(compressedSha256).matches()) {
+            invalidFields.add("compressedSha256");
+        }
+        if (!SHA256_HEX_PATTERN.matcher(uncompressedSha256).matches()) {
+            invalidFields.add("uncompressedSha256");
+        }
+        if (compressedSizeBytes <= 0L) {
+            invalidFields.add("compressedSizeBytes");
+        }
+        if (uncompressedSizeBytes <= 0L) {
+            invalidFields.add("uncompressedSizeBytes");
+        }
+        if (!invalidFields.isEmpty()) {
+            call.reject(
+                "INVALID_MANIFEST: Invalid or missing pack manifest field(s): " + String.join(", ", invalidFields) + ".",
+                "INVALID_MANIFEST"
+            );
             return;
         }
 
@@ -182,13 +205,22 @@ public class EnglishPackInstallerPlugin extends Plugin {
                     tmpDb.delete();
                 }
                 emitProgress("extracting", 0L, uncompressedSizeBytes, "Extracting SQLite dictionary...");
-                String actualUncompressedSha = extractGzipAndHash(partGz, tmpDb, uncompressedSizeBytes);
+                String actualUncompressedSha;
+                try {
+                    actualUncompressedSha = extractGzipAndHash(partGz, tmpDb, uncompressedSizeBytes);
+                } catch (Exception extractErr) {
+                    deleteIfExists(tmpDb);
+                    deleteIfExists(partGz);
+                    deleteIfExists(metaFile);
+                    throw extractErr;
+                }
 
                 // Step 5: Verify uncompressed SQLite SHA-256
                 emitProgress("verifying_database", uncompressedSizeBytes, uncompressedSizeBytes, "Verifying database SHA-256 checksum...");
                 if (!actualUncompressedSha.equalsIgnoreCase(uncompressedSha256)) {
-                    //noinspection ResultOfMethodCallIgnored
-                    tmpDb.delete();
+                    deleteIfExists(tmpDb);
+                    deleteIfExists(partGz);
+                    deleteIfExists(metaFile);
                     call.reject(
                         "Extracted SQLite database SHA-256 verification failed.",
                         "CHECKSUM_MISMATCH_UNCOMPRESSED"
@@ -198,7 +230,15 @@ public class EnglishPackInstallerPlugin extends Plugin {
 
                 // Step 6: Run SQLite integrity & schema validation on staging DB before activation
                 emitProgress("verifying_integrity", uncompressedSizeBytes, uncompressedSizeBytes, "Running SQLite integrity checks...");
-                JSObject dbSummary = validateStagingDatabase(tmpDb);
+                JSObject dbSummary;
+                try {
+                    dbSummary = validateStagingDatabase(tmpDb);
+                } catch (Exception integrityErr) {
+                    deleteIfExists(tmpDb);
+                    deleteIfExists(partGz);
+                    deleteIfExists(metaFile);
+                    throw integrityErr;
+                }
 
                 // Step 7: Atomic swap preserving activeDb until tmpDb replaces it cleanly
                 emitProgress("activating", uncompressedSizeBytes, uncompressedSizeBytes, "Activating offline English dictionary...");
@@ -454,9 +494,40 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 }
                 out.getFD().sync();
             }
+            long actualPartLen = partFile.exists() ? partFile.length() : 0L;
+            if (actualPartLen < expectedTotalBytes) {
+                throw new IOException(
+                    "Download interrupted at " + actualPartLen + " of " + expectedTotalBytes + " bytes. Tap Retry to resume."
+                );
+            }
+            if (actualPartLen > expectedTotalBytes) {
+                deleteIfExists(partFile);
+                deleteIfExists(metaFile);
+                throw new IOException("Downloaded archive exceeded expected size; cleared partial file for clean retry.");
+            }
         } finally {
             conn.disconnect();
         }
+    }
+
+    private long extractPositiveLong(PluginCall call, String key) {
+        Object raw = call.getData().opt(key);
+        if (raw == null || raw == JSONObject.NULL) {
+            return 0L;
+        }
+        if (raw instanceof Number) {
+            long val = ((Number) raw).longValue();
+            return val > 0L ? val : 0L;
+        }
+        if (raw instanceof String) {
+            try {
+                long val = Long.parseLong(((String) raw).trim());
+                return val > 0L ? val : 0L;
+            } catch (NumberFormatException ignored) {
+                return 0L;
+            }
+        }
+        return 0L;
     }
 
     private HttpURLConnection openConnectionWithRedirects(String urlStr, long rangeStart) throws IOException {

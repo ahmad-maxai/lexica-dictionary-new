@@ -1,5 +1,9 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
-import { ENGLISH_PACK_MANIFEST, type EnglishPackManifest } from '../config/englishDictionaryConfig';
+import {
+  ENGLISH_PACK_MANIFEST,
+  validateEnglishPackManifest,
+  type EnglishPackManifest,
+} from '../config/englishDictionaryConfig';
 
 export type PackInstallStage =
   | 'idle'
@@ -48,6 +52,8 @@ export interface DeviceMemoryMetrics {
 export interface EnglishPackInstallerNative {
   getPackStatus(): Promise<Partial<EnglishPackStatus>>;
   installPack(options: {
+    packId?: string;
+    packVersion?: string;
     url: string;
     compressedSha256: string;
     uncompressedSha256: string;
@@ -88,6 +94,9 @@ class EnglishPackService {
   private statusListeners = new Set<StatusListener>();
   private progressListeners = new Set<ProgressListener>();
   private nativeProgressHandle: PluginListenerHandle | null = null;
+  private statusLoaded = false;
+  private statusLoadPromise: Promise<EnglishPackStatus> | null = null;
+  private manifestOverride: EnglishPackManifest | null = null;
 
   private currentStatus: EnglishPackStatus = {
     installed: false,
@@ -113,7 +122,7 @@ class EnglishPackService {
   };
 
   public getManifest(): EnglishPackManifest {
-    return ENGLISH_PACK_MANIFEST;
+    return this.manifestOverride ?? ENGLISH_PACK_MANIFEST;
   }
 
   public getPlatform(): 'android' | 'web' | 'ios' {
@@ -136,12 +145,20 @@ class EnglishPackService {
     nativeBridge?: EnglishPackInstallerNative;
     platform?: 'android' | 'web' | 'ios' | null;
     status?: Partial<EnglishPackStatus>;
+    manifest?: EnglishPackManifest | null;
   }): void {
     if (options.nativeBridge !== undefined) {
       this.nativeBridge = options.nativeBridge;
+      this.statusLoaded = false;
+      this.statusLoadPromise = null;
     }
     if (options.platform !== undefined) {
       this.platformOverride = options.platform;
+      this.statusLoaded = false;
+      this.statusLoadPromise = null;
+    }
+    if (options.manifest !== undefined) {
+      this.manifestOverride = options.manifest;
     }
     if (options.status) {
       this.currentStatus = {
@@ -149,6 +166,7 @@ class EnglishPackService {
         ...options.status,
         platform: this.getPlatform(),
       };
+      this.statusLoaded = true;
       this.emitStatus();
     }
   }
@@ -156,6 +174,9 @@ class EnglishPackService {
   public resetTestingOverrides(): void {
     this.nativeBridge = NativeEnglishPackInstaller;
     this.platformOverride = null;
+    this.manifestOverride = null;
+    this.statusLoaded = false;
+    this.statusLoadPromise = null;
     this.currentStatus = {
       installed: false,
       dbPath: '',
@@ -255,8 +276,21 @@ class EnglishPackService {
         error: err instanceof Error ? err.message : 'Failed to inspect English SQLite pack status.',
       };
     }
+    this.statusLoaded = true;
     this.emitStatus();
     return this.getCachedStatus();
+  }
+
+  public async ensureStatusLoaded(): Promise<EnglishPackStatus> {
+    if (!this.isNativeAndroid() || this.statusLoaded) {
+      return this.getCachedStatus();
+    }
+    if (!this.statusLoadPromise) {
+      this.statusLoadPromise = this.refreshStatus().finally(() => {
+        this.statusLoadPromise = null;
+      });
+    }
+    return this.statusLoadPromise;
   }
 
   public async installEnglishPack(): Promise<EnglishPackStatus> {
@@ -265,6 +299,21 @@ class EnglishPackService {
         'UNSUPPORTED_PLATFORM',
         'Native 158 MB SQLite pack installation runs on Android devices. Browser preview uses the lightweight development fallback.'
       );
+    }
+
+    const manifest = this.getManifest();
+    const validation = validateEnglishPackManifest(manifest);
+    if (!validation.valid) {
+      const err = new EnglishPackInstallError('INVALID_MANIFEST', validation.message, {
+        missingOrInvalidFields: validation.missingOrInvalidFields,
+      });
+      this.currentStatus = {
+        ...this.currentStatus,
+        inProgress: false,
+        error: err.message,
+      };
+      this.emitStatus();
+      throw err;
     }
 
     await this.attachNativeProgressListener();
@@ -277,16 +326,27 @@ class EnglishPackService {
       inProgress: true,
       error: null,
     };
+    this.emitProgress({
+      stage: 'downloading',
+      processedBytes: this.currentStatus.partialBytes,
+      totalBytes: manifest.compressedSizeBytes,
+      percent:
+        manifest.compressedSizeBytes > 0
+          ? Math.round((this.currentStatus.partialBytes * 100) / manifest.compressedSizeBytes)
+          : 0,
+      message: 'Preparing download...',
+    });
     this.emitStatus();
 
-    const manifest = this.getManifest();
     try {
       const res = await this.nativeBridge.installPack({
-        url: manifest.downloadUrl,
-        compressedSha256: manifest.compressedSha256,
-        uncompressedSha256: manifest.uncompressedSha256,
-        compressedSizeBytes: manifest.compressedSizeBytes,
-        uncompressedSizeBytes: manifest.uncompressedSizeBytes,
+        packId: manifest.packId,
+        packVersion: manifest.packVersion,
+        url: manifest.downloadUrl.trim(),
+        compressedSha256: manifest.compressedSha256.trim().toLowerCase(),
+        uncompressedSha256: manifest.uncompressedSha256.trim().toLowerCase(),
+        compressedSizeBytes: Math.trunc(manifest.compressedSizeBytes),
+        uncompressedSizeBytes: Math.trunc(manifest.uncompressedSizeBytes),
       });
 
       this.currentStatus = {
@@ -400,7 +460,9 @@ class EnglishPackService {
     const code =
       typeof rawObj.code === 'string' && rawObj.code.length > 0
         ? rawObj.code
-        : rawMsg.includes('INSUFFICIENT_STORAGE')
+        : rawMsg.includes('INVALID_MANIFEST')
+          ? 'INVALID_MANIFEST'
+          : rawMsg.includes('INSUFFICIENT_STORAGE')
           ? 'INSUFFICIENT_STORAGE'
           : rawMsg.includes('DOWNLOAD_CANCELLED')
             ? 'DOWNLOAD_CANCELLED'
