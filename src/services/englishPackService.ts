@@ -31,9 +31,15 @@ export interface EnglishPackStatus {
   inProgress: boolean;
   datasetVersion: string;
   schemaVersion?: number;
+  packLayer?: 'core' | 'full';
   acceptedEntries: number;
   distinctHeadwords: number;
   totalSenses: number;
+  corePrimarySenses?: number;
+  totalWordForms?: number;
+  extendedInstalled?: boolean;
+  extendedDbPath?: string;
+  extendedDbSizeBytes?: number;
   platform: 'android' | 'web' | 'ios';
   error?: string | null;
 }
@@ -138,9 +144,15 @@ class EnglishPackService {
     inProgress: false,
     datasetVersion: '',
     schemaVersion: ENGLISH_PACK_MANIFEST.schemaVersion,
+    packLayer: 'core',
     acceptedEntries: 0,
     distinctHeadwords: 0,
     totalSenses: 0,
+    corePrimarySenses: 0,
+    totalWordForms: 0,
+    extendedInstalled: false,
+    extendedDbPath: '',
+    extendedDbSizeBytes: 0,
     platform: 'web',
     error: null,
   };
@@ -218,9 +230,15 @@ class EnglishPackService {
       inProgress: false,
       datasetVersion: '',
       schemaVersion: ENGLISH_PACK_MANIFEST.schemaVersion,
+      packLayer: 'core',
       acceptedEntries: 0,
       distinctHeadwords: 0,
       totalSenses: 0,
+      corePrimarySenses: 0,
+      totalWordForms: 0,
+      extendedInstalled: false,
+      extendedDbPath: '',
+      extendedDbSizeBytes: 0,
       platform: this.getPlatform(),
       error: null,
     };
@@ -297,9 +315,15 @@ class EnglishPackService {
         inProgress: Boolean(nativeRes.inProgress),
         datasetVersion: nativeRes.datasetVersion || '',
         schemaVersion: Number(nativeRes.schemaVersion || ENGLISH_PACK_MANIFEST.schemaVersion),
+        packLayer: nativeRes.packLayer === 'full' ? 'full' : 'core',
         acceptedEntries: Number(nativeRes.acceptedEntries || 0),
         distinctHeadwords: Number(nativeRes.distinctHeadwords || 0),
         totalSenses: Number(nativeRes.totalSenses || 0),
+        corePrimarySenses: Number(nativeRes.corePrimarySenses || nativeRes.acceptedEntries || 0),
+        totalWordForms: Number(nativeRes.totalWordForms || 0),
+        extendedInstalled: Boolean(nativeRes.extendedInstalled),
+        extendedDbPath: nativeRes.extendedDbPath || '',
+        extendedDbSizeBytes: Number(nativeRes.extendedDbSizeBytes || 0),
         platform,
         error: nativeRes.error || null,
       };
@@ -427,9 +451,15 @@ class EnglishPackService {
         inProgress: false,
         datasetVersion: res.datasetVersion || manifest.packVersion,
         schemaVersion: Number(res.schemaVersion || manifest.schemaVersion),
+        packLayer: res.packLayer === 'full' ? 'full' : (manifest.packLayer === 'core' ? 'core' : 'full'),
         acceptedEntries: Number(res.acceptedEntries || manifest.acceptedEntries),
         distinctHeadwords: Number(res.distinctHeadwords || manifest.distinctHeadwords),
         totalSenses: Number(res.totalSenses || manifest.totalSenses),
+        corePrimarySenses: Number(res.corePrimarySenses || manifest.corePrimarySenses || manifest.acceptedEntries),
+        totalWordForms: Number(res.totalWordForms || manifest.totalWordForms || 0),
+        extendedInstalled: Boolean(res.extendedInstalled),
+        extendedDbPath: res.extendedDbPath || this.currentStatus.extendedDbPath || '',
+        extendedDbSizeBytes: Number(res.extendedDbSizeBytes || this.currentStatus.extendedDbSizeBytes || 0),
         platform: 'android',
         error: null,
       };
@@ -504,9 +534,13 @@ class EnglishPackService {
       dbSizeBytes: Number(res.dbSizeBytes || this.currentStatus.dbSizeBytes),
       datasetVersion: res.datasetVersion || this.currentStatus.datasetVersion,
       schemaVersion: Number(res.schemaVersion || this.currentStatus.schemaVersion || ENGLISH_PACK_MANIFEST.schemaVersion),
+      packLayer: res.packLayer === 'full' ? 'full' : this.currentStatus.packLayer || 'core',
       acceptedEntries: Number(res.acceptedEntries || this.currentStatus.acceptedEntries),
       distinctHeadwords: Number(res.distinctHeadwords || this.currentStatus.distinctHeadwords),
       totalSenses: Number(res.totalSenses || this.currentStatus.totalSenses),
+      corePrimarySenses: Number(res.corePrimarySenses || this.currentStatus.corePrimarySenses || this.currentStatus.acceptedEntries),
+      totalWordForms: Number(res.totalWordForms || this.currentStatus.totalWordForms || 0),
+      extendedInstalled: res.extendedInstalled !== undefined ? Boolean(res.extendedInstalled) : this.currentStatus.extendedInstalled,
       error: null,
     };
     this.emitStatus();

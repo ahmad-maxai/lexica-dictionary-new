@@ -308,15 +308,23 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
           const displayVersion = isEnglishSqliteCard
             ? englishStatus.datasetVersion || ENGLISH_PACK_MANIFEST.packVersion
             : pack.version;
+          const isEnglishCoreLayer =
+            isEnglishSqliteCard &&
+            (englishStatus.packLayer !== 'full' || ENGLISH_PACK_MANIFEST.packLayer === 'core') &&
+            !englishStatus.extendedInstalled;
           const displayEntries = isEnglishSqliteCard
             ? isInstalled
               ? englishStatus.acceptedEntries || ENGLISH_PACK_MANIFEST.acceptedEntries
               : ENGLISH_PACK_MANIFEST.acceptedEntries
             : stat.loadedEntriesCount;
           const displaySenses = isEnglishSqliteCard
-            ? isInstalled
-              ? englishStatus.totalSenses || ENGLISH_PACK_MANIFEST.totalSenses
-              : ENGLISH_PACK_MANIFEST.totalSenses
+            ? isEnglishCoreLayer
+              ? englishStatus.corePrimarySenses ||
+                ENGLISH_PACK_MANIFEST.corePrimarySenses ||
+                ENGLISH_PACK_MANIFEST.acceptedEntries
+              : isInstalled
+                ? englishStatus.totalSenses || ENGLISH_PACK_MANIFEST.totalSenses
+                : ENGLISH_PACK_MANIFEST.totalSenses
             : stat.sensesCount;
 
           const isExpanded = expandedLang === lang.code;
@@ -324,7 +332,12 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
             downloadingCode === lang.code || (isEnglishSqliteCard && englishStatus.inProgress);
           const kbSize = Math.round(stat.actualSizeBytes / 1024);
           const enCompressedMb = (ENGLISH_PACK_MANIFEST.compressedSizeBytes / (1024 * 1024)).toFixed(2);
-          const enUncompressedMb = (ENGLISH_PACK_MANIFEST.uncompressedSizeBytes / (1024 * 1024)).toFixed(2);
+          const enUncompressedMb = (
+            (isInstalled && englishStatus.dbSizeBytes
+              ? englishStatus.dbSizeBytes
+              : ENGLISH_PACK_MANIFEST.uncompressedSizeBytes) /
+            (1024 * 1024)
+          ).toFixed(2);
           const hasPartialResume = isEnglishSqliteCard && !isInstalled && englishStatus.partialBytes > 0;
 
           return (
@@ -534,7 +547,8 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                           </div>
                           <div className="text-[11px] text-slate-500 dark:text-slate-400">
                             {ENGLISH_PACK_MANIFEST.attribution.license} · Pack v{ENGLISH_PACK_MANIFEST.packVersion} ·{' '}
-                            {ENGLISH_PACK_MANIFEST.distinctHeadwords.toLocaleString()} headwords
+                            {ENGLISH_PACK_MANIFEST.distinctHeadwords.toLocaleString()} headwords ·{' '}
+                            {(ENGLISH_PACK_MANIFEST.totalWordForms || 134837).toLocaleString()} word forms
                           </div>
                         </div>
                         {englishStatus.availableBytes > 0 && (
@@ -543,6 +557,17 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                           </span>
                         )}
                       </div>
+
+                      {ENGLISH_PACK_MANIFEST.extendedCompanion && (
+                        <div className="p-2.5 rounded-xl bg-white/80 dark:bg-[#101C16]/80 border border-slate-200/70 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300">
+                          <span className="font-semibold text-slate-800 dark:text-slate-100">
+                            Optional Extended Enrichment ({(ENGLISH_PACK_MANIFEST.extendedCompanion.uncompressedSizeBytes / (1024 * 1024)).toFixed(2)} MB):
+                          </span>{' '}
+                          {englishStatus.extendedInstalled
+                            ? 'Installed — secondary senses, examples & etymologies active.'
+                            : 'Not installed (optional). Core offline dictionary remains complete for exact, prefix, inflection & definition search without downloading Extended data.'}
+                        </div>
+                      )}
 
                       {isInstalled && (
                         <div className="flex flex-wrap items-center gap-2 pt-1">

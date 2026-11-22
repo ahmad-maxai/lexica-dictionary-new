@@ -1,0 +1,481 @@
+{
+  "build_seconds": 23.938,
+  "schema_version": 3,
+  "pack_layer": "core",
+  "pack_version": "0.4.0-core",
+  "counts": {
+    "total_entries": 75000,
+    "entries_with_valid_primary_definition": 75000,
+    "entries_missing_definitions": 0,
+    "word_forms_preserved": 134837,
+    "entries_with_primary_ipa": 50902,
+    "ipa_coverage_percent": 67.87,
+    "source_total_senses": 190672,
+    "entries_with_extra_senses_for_extended": 34352
+  },
+  "primary_definition_audit": {
+    "selection_reason_counts": {
+      "sense_1_direct": 74288,
+      "sense_1_crossref_only": 670,
+      "promoted_over_weak_stub_sense_1": 42
+    },
+    "markup_artifacts_cleaned": 23,
+    "entries_whose_only_senses_are_crossref_or_inflection": 5651,
+    "promoted_samples": [
+      {
+        "entry_id": 3371,
+        "headword": "it's",
+        "pos": "det",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Obsolete form of its.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Misspelling of its."
+      },
+      {
+        "entry_id": 3995,
+        "headword": "non",
+        "pos": "adv",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Obsolete form of none.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Used to negate or invert the meaning of the following adjective. More properly written as the prefix non-."
+      },
+      {
+        "entry_id": 4170,
+        "headword": "hole",
+        "pos": "adj",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Obsolete spelling of whole.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Misspelling of whole."
+      },
+      {
+        "entry_id": 5655,
+        "headword": "fella",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Pronunciation spelling of fellow.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Used as a general intensifier; a pfella."
+      },
+      {
+        "entry_id": 5798,
+        "headword": "loose",
+        "pos": "verb",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Obsolete form of lose.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Misspelling of lose."
+      },
+      {
+        "entry_id": 7384,
+        "headword": "then",
+        "pos": "conj",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Obsolete spelling of than.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Misspelling of than."
+      },
+      {
+        "entry_id": 11288,
+        "headword": "moth",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Obsolete form of mote.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "A liver spot, especially an irregular or feathery one."
+      },
+      {
+        "entry_id": 12366,
+        "headword": "wan",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Pronunciation spelling of one, representing Ireland and Glasgow English.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "A girl or woman."
+      },
+      {
+        "entry_id": 12843,
+        "headword": "launce",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Obsolete form of lance.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "sand eel, sand lance, fish of the family Ammodytidae"
+      },
+      {
+        "entry_id": 16285,
+        "headword": "lite",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Archaic form of light (“window or aperture in a building”).",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "A window pane"
+      },
+      {
+        "entry_id": 17508,
+        "headword": "dem",
+        "pos": "det",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Nonstandard form of them, in the sense of \"those\".",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "(clitic, suffix) A group of."
+      },
+      {
+        "entry_id": 21338,
+        "headword": "rime",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Archaic spelling of rhyme (“word that rhymes with another”).",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "The second part of a syllable, from the vowel on (as opposed to the onset)."
+      },
+      {
+        "entry_id": 23481,
+        "headword": "scull",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Archaic spelling of skull.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "A skull cap. A small bowl-shaped helmet, without visor or bever."
+      },
+      {
+        "entry_id": 24468,
+        "headword": "letteral",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Obsolete form of literal (“a misprint that affects a letter”).",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "The name of a letter, such as gy. for the letter G."
+      },
+      {
+        "entry_id": 25653,
+        "headword": "aweful",
+        "pos": "adj",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Obsolete spelling of awful.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Misspelling of awful."
+      },
+      {
+        "entry_id": 27525,
+        "headword": "venew",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Archaic spelling of venue.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "A bout, or turn, as at fencing"
+      },
+      {
+        "entry_id": 27719,
+        "headword": "lier",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Obsolete spelling of liar.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Misspelling of liar."
+      },
+      {
+        "entry_id": 28295,
+        "headword": "riband",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Archaic form of ribbon.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "A narrow diminutive of the bend, thinner than a bendlet."
+      },
+      {
+        "entry_id": 29499,
+        "headword": "connexion",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Dated spelling of connection.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "A Methodist denomination as a whole, as opposed to its constituent churches, circuits, districts and conferences (US spelling: connection)."
+      },
+      {
+        "entry_id": 30982,
+        "headword": "bovver",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Pronunciation spelling of bother.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Violence, especially that associated with youth gangs."
+      },
+      {
+        "entry_id": 31054,
+        "headword": "wimmin",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Eye dialect spelling of women.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Feminist spelling of women."
+      },
+      {
+        "entry_id": 31141,
+        "headword": "dawg",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Pronunciation spelling of dog.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Term of address for a close, usually male, friend."
+      },
+      {
+        "entry_id": 32614,
+        "headword": "lye",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Obsolete spelling of lie.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "A short side line, connected with the main line; a turn-out; a siding."
+      },
+      {
+        "entry_id": 33470,
+        "headword": "tuff",
+        "pos": "adj",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Eye dialect spelling of tough.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Impressive, amazing, awesome, cool."
+      },
+      {
+        "entry_id": 33496,
+        "headword": "vail",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Archaic form of veil.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Misspelling of veil."
+      },
+      {
+        "entry_id": 33497,
+        "headword": "vail",
+        "pos": "verb",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Archaic form of veil.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Misspelling of veil."
+      },
+      {
+        "entry_id": 35896,
+        "headword": "sedge",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Obsolete spelling of siege.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "A flock of herons, cranes, or bitterns."
+      },
+      {
+        "entry_id": 36595,
+        "headword": "daemonize",
+        "pos": "verb",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Archaic spelling of demonize.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Of a computer program or script, to prepare to go in to the background and become a daemon."
+      },
+      {
+        "entry_id": 50752,
+        "headword": "thang",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Pronunciation spelling of thing, usually used to denote a known fad or popular activity.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "the buttocks."
+      },
+      {
+        "entry_id": 50976,
+        "headword": "phantasy",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Archaic spelling of fantasy.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "The innate, mental image of an object; the link between instinct and reality."
+      },
+      {
+        "entry_id": 52406,
+        "headword": "thru",
+        "pos": "prep",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Nonstandard spelling of through.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Abbreviation of through."
+      },
+      {
+        "entry_id": 53142,
+        "headword": "dependant",
+        "pos": "adj",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Obsolete spelling of dependent.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Misspelling of dependent."
+      },
+      {
+        "entry_id": 53554,
+        "headword": "childe",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Obsolete form of child.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "A child of noble birth."
+      },
+      {
+        "entry_id": 56256,
+        "headword": "li'l",
+        "pos": "adj",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Pronunciation spelling of little.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "Generic intensifier."
+      },
+      {
+        "entry_id": 59829,
+        "headword": "burthen",
+        "pos": "noun",
+        "reason": "promoted_over_weak_stub_sense_1",
+        "original_sense_1": "Archaic form of burden.",
+        "selected_sense_number": 2,
+        "selected_primary_definition": "The tonnage of a ship based on the number of tuns of wine that it could carry in its holds."
+      }
+    ]
+  },
+  "duplicate_and_normalization_audit": {
+    "distinct_headword_lower": 45317,
+    "multi_entry_headword_lower_homographs": 17051,
+    "same_headword_lower_and_pos_entries": 6202,
+    "non_ascii_headwords": 378,
+    "apostrophe_headwords": 512,
+    "core_entries_headword_norm_rows": 789,
+    "core_word_forms_norm_rows": 2853,
+    "normalization_collision_groups": 153,
+    "normalization_collision_samples": {
+      "a": [
+        "'a",
+        "a",
+        "ä"
+      ],
+      "name": [
+        "name",
+        "ñame"
+      ],
+      "een": [
+        "e'en",
+        "een"
+      ],
+      "o": [
+        "o",
+        "o'"
+      ],
+      "mexico": [
+        "mexico",
+        "méxico"
+      ],
+      "brassiere": [
+        "brassiere",
+        "brassière"
+      ],
+      "hell": [
+        "he'll",
+        "hell"
+      ],
+      "al": [
+        "al",
+        "ål"
+      ],
+      "panama": [
+        "panama",
+        "panamá"
+      ],
+      "peru": [
+        "peru",
+        "perú"
+      ],
+      "reunion": [
+        "reunion",
+        "réunion"
+      ],
+      "zaire": [
+        "zaire",
+        "zaïre"
+      ],
+      "id": [
+        "i'd",
+        "id"
+      ],
+      "its": [
+        "it's",
+        "its"
+      ],
+      "regime": [
+        "regime",
+        "régime"
+      ],
+      "ant": [
+        "an't",
+        "ant"
+      ],
+      "a la": [
+        "a la",
+        "à la"
+      ],
+      "dye": [
+        "d'ye",
+        "dye"
+      ],
+      "ray": [
+        "ra'y",
+        "ray"
+      ],
+      "ne": [
+        "ne",
+        "né"
+      ],
+      "para": [
+        "para",
+        "pará"
+      ],
+      "us": [
+        "u's",
+        "us"
+      ],
+      "pinata": [
+        "pinata",
+        "piñata"
+      ],
+      "maori": [
+        "maori",
+        "māori"
+      ],
+      "dua": [
+        "du'a'",
+        "dua"
+      ]
+    }
+  },
+  "search_index_integrity": {
+    "core_integrity_check": true,
+    "core_foreign_key_check": true,
+    "extended_integrity_check": true,
+    "fts5_knowledge_hits": 129,
+    "fts5_vowel_or_the_sample_hits": 71539,
+    "normalized_regime_lookup": [
+      "régime"
+    ]
+  },
+  "sizes": {
+    "core_db_bytes": 18546688,
+    "core_db_mib": 17.69,
+    "core_gz_bytes": 8602919,
+    "core_gz_mib": 8.2,
+    "extended_db_bytes": 89636864,
+    "extended_db_mib": 85.48,
+    "extended_gz_bytes": 37514633,
+    "extended_gz_mib": 35.78
+  },
+  "checksums": {
+    "core_db_sha256": "8a66010602321ae1db7d03fe788d07e5e787e160959962bb0fc7fe66c1f20d44",
+    "core_gz_sha256": "5c80de4b38765186b8509bd129c8e6de79642e41b020c19a4304eb76e4892788",
+    "extended_db_sha256": "8fd36bb6b606e03f05c99b279feb249d8a2de04a6710f3d7b09816269e92973f",
+    "extended_gz_sha256": "aec1868f936d3b41074bd34f5ec2ae6ce278604f0f7ecf12be0d573466befbee"
+  }
+}

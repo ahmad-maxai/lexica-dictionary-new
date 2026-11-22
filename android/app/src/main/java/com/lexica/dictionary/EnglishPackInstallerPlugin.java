@@ -54,6 +54,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
     private static final String BACKUP_DB_NAME = "lexica_englishSQLite.db.bak";
     private static final String PART_GZ_NAME = "lexica_english.db.gz.part";
     private static final String META_FILE_NAME = "lexica_english.db.gz.meta.json";
+    private static final String EXTENDED_DB_NAME = "lexica_english_extended.db";
 
     private static final String BACKUP_ENTRY_MANIFEST = "manifest.json";
     private static final String BACKUP_ENTRY_STATE = "bundled_state.json";
@@ -110,11 +111,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
                     res.put("dbSizeBytes", activeDb.length());
                     try {
                         JSObject meta = readDbSummary(activeDb);
-                        res.put("datasetVersion", meta.optString("pack_version", ""));
-                        res.put("schemaVersion", meta.optInt("schema_version", 1));
-                        res.put("acceptedEntries", meta.optInt("accepted_entries", 0));
-                        res.put("distinctHeadwords", meta.optInt("distinct_headwords", 0));
-                        res.put("totalSenses", meta.optInt("total_senses", 0));
+                        populateLayerSummary(res, meta, dir);
                     } catch (Exception dbErr) {
                         res.put("installed", false);
                         res.put("error", dbErr.getMessage());
@@ -122,6 +119,9 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 } else {
                     res.put("installed", false);
                     res.put("dbSizeBytes", 0L);
+                    res.put("extendedInstalled", false);
+                    res.put("extendedDbPath", "");
+                    res.put("extendedDbSizeBytes", 0L);
                 }
 
                 call.resolve(res);
@@ -201,11 +201,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
                             result.put("alreadyInstalled", true);
                             result.put("dbPath", activeDb.getAbsolutePath());
                             result.put("dbSizeBytes", activeDb.length());
-                            result.put("datasetVersion", installedVersion);
-                            result.put("schemaVersion", existingSummary.optInt("schema_version", 1));
-                            result.put("acceptedEntries", installedEntries);
-                            result.put("distinctHeadwords", existingSummary.optInt("distinct_headwords", 0));
-                            result.put("totalSenses", existingSummary.optInt("total_senses", 0));
+                            populateLayerSummary(result, existingSummary, dir);
                             call.resolve(result);
                             return;
                         }
@@ -310,11 +306,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 result.put("alreadyInstalled", false);
                 result.put("dbPath", activeDb.getAbsolutePath());
                 result.put("dbSizeBytes", activeDb.length());
-                result.put("datasetVersion", dbSummary.optString("pack_version", ""));
-                result.put("schemaVersion", dbSummary.optInt("schema_version", 1));
-                result.put("acceptedEntries", dbSummary.optInt("accepted_entries", 0));
-                result.put("distinctHeadwords", dbSummary.optInt("distinct_headwords", 0));
-                result.put("totalSenses", dbSummary.optInt("total_senses", 0));
+                populateLayerSummary(result, dbSummary, dir);
                 call.resolve(result);
             } catch (CancelledException ce) {
                 call.reject("Download paused. Partial file kept for safe resume.", "DOWNLOAD_CANCELLED");
@@ -344,11 +336,13 @@ public class EnglishPackInstallerPlugin extends Plugin {
         executor.execute(() -> {
             try {
                 File dir = getPacksDir();
-                deleteIfExists(new File(dir, ACTIVE_DB_NAME));
+                File activeDb = new File(dir, ACTIVE_DB_NAME);
+                deleteIfExists(activeDb);
                 deleteIfExists(new File(dir, TMP_DB_NAME));
                 deleteIfExists(new File(dir, BACKUP_DB_NAME));
                 deleteIfExists(new File(dir, PART_GZ_NAME));
                 deleteIfExists(new File(dir, META_FILE_NAME));
+                deleteIfExists(new File(dir, EXTENDED_DB_NAME));
                 JSObject res = new JSObject();
                 res.put("removed", true);
                 res.put("availableBytes", getAvailableStorageBytes(dir));
@@ -363,7 +357,8 @@ public class EnglishPackInstallerPlugin extends Plugin {
     public void verifyInstalledPack(PluginCall call) {
         executor.execute(() -> {
             try {
-                File activeDb = new File(getPacksDir(), ACTIVE_DB_NAME);
+                File dir = getPacksDir();
+                File activeDb = new File(dir, ACTIVE_DB_NAME);
                 if (!activeDb.exists()) {
                     call.reject("English pack database is not installed.", "NOT_INSTALLED");
                     return;
@@ -371,11 +366,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 JSObject summary = validateStagingDatabase(activeDb);
                 summary.put("dbPath", activeDb.getAbsolutePath());
                 summary.put("dbSizeBytes", activeDb.length());
-                summary.put("datasetVersion", summary.optString("pack_version", ""));
-                summary.put("schemaVersion", summary.optInt("schema_version", 1));
-                summary.put("acceptedEntries", summary.optInt("accepted_entries", 0));
-                summary.put("distinctHeadwords", summary.optInt("distinct_headwords", 0));
-                summary.put("totalSenses", summary.optInt("total_senses", 0));
+                populateLayerSummary(summary, summary, dir);
                 call.resolve(summary);
             } catch (Exception e) {
                 call.reject("INTEGRITY_CHECK_FAILED: " + e.getMessage(), "SQLITE_INTEGRITY_FAILED", e);
@@ -540,11 +531,14 @@ public class EnglishPackInstallerPlugin extends Plugin {
                     if (includeEnglish && dbSummary != null) {
                         JSONObject enObj = new JSONObject();
                         enObj.put("packId", "en-wiktionary-sqlite");
+                        enObj.put("packLayer", dbSummary.optString("pack_layer", "full"));
                         enObj.put("datasetVersion", dbSummary.optString("pack_version", ""));
                         enObj.put("schemaVersion", dbSummary.optInt("schema_version", 1));
                         enObj.put("acceptedEntries", dbSummary.optInt("accepted_entries", 0));
                         enObj.put("distinctHeadwords", dbSummary.optInt("distinct_headwords", 0));
                         enObj.put("totalSenses", dbSummary.optInt("total_senses", 0));
+                        enObj.put("corePrimarySenses", dbSummary.optInt("core_primary_senses", dbSummary.optInt("accepted_entries", 0)));
+                        enObj.put("totalWordForms", dbSummary.optInt("total_word_forms", 0));
                         enObj.put("dbBytes", dbTotalBytes);
                         enObj.put("dbSha256", dbSha256);
                         manifest.put("englishPack", enObj);
@@ -806,11 +800,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 if (includesEnglishSqlite && restoredDbSummary != null) {
                     res.put("dbPath", activeDb.getAbsolutePath());
                     res.put("dbSizeBytes", activeDb.length());
-                    res.put("datasetVersion", restoredDbSummary.optString("pack_version", ""));
-                    res.put("schemaVersion", restoredDbSummary.optInt("schema_version", 1));
-                    res.put("acceptedEntries", restoredDbSummary.optInt("accepted_entries", 0));
-                    res.put("distinctHeadwords", restoredDbSummary.optInt("distinct_headwords", 0));
-                    res.put("totalSenses", restoredDbSummary.optInt("total_senses", 0));
+                    populateLayerSummary(res, restoredDbSummary, dir);
                 }
                 call.resolve(res);
             } catch (Exception e) {
@@ -1104,6 +1094,26 @@ public class EnglishPackInstallerPlugin extends Plugin {
         return toHex(digest.digest());
     }
 
+    private void populateLayerSummary(JSObject target, JSObject metaSummary, File packsDir) {
+        target.put("datasetVersion", metaSummary.optString("pack_version", ""));
+        int schemaVer = metaSummary.optInt("schema_version", 1);
+        target.put("schemaVersion", schemaVer);
+        String packLayer = metaSummary.optString("pack_layer", schemaVer >= 3 ? "core" : "full");
+        target.put("packLayer", packLayer);
+        int acceptedEntries = metaSummary.optInt("accepted_entries", 0);
+        target.put("acceptedEntries", acceptedEntries);
+        target.put("distinctHeadwords", metaSummary.optInt("distinct_headwords", 0));
+        target.put("totalSenses", metaSummary.optInt("total_senses", 0));
+        target.put("corePrimarySenses", metaSummary.optInt("core_primary_senses", acceptedEntries));
+        target.put("totalWordForms", metaSummary.optInt("total_word_forms", 0));
+
+        File extDb = new File(packsDir, EXTENDED_DB_NAME);
+        boolean extInstalled = extDb.exists() && extDb.length() > 0L;
+        target.put("extendedInstalled", extInstalled);
+        target.put("extendedDbPath", extInstalled ? extDb.getAbsolutePath() : "");
+        target.put("extendedDbSizeBytes", extInstalled ? extDb.length() : 0L);
+    }
+
     private JSObject validateStagingDatabase(File dbFile) throws Exception {
         SQLiteDatabase db = null;
         try {
@@ -1114,16 +1124,43 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 }
             }
             try (Cursor tables = db.rawQuery(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('entries','senses','word_forms','entries_fts','metadata','sources');",
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('entries','word_forms','entries_fts','metadata','sources');",
                 null
             )) {
-                if (!tables.moveToFirst() || tables.getInt(0) < 6) {
-                    throw new IOException("Missing required English dictionary tables");
+                if (!tables.moveToFirst() || tables.getInt(0) < 5) {
+                    throw new IOException("Missing required English dictionary base tables");
                 }
+            }
+            boolean hasSensesTable = false;
+            try (Cursor sensesCur = db.rawQuery(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='senses';",
+                null
+            )) {
+                hasSensesTable = sensesCur.moveToFirst() && sensesCur.getInt(0) > 0;
+            }
+            boolean hasPosTable = false;
+            try (Cursor posCur = db.rawQuery(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='parts_of_speech';",
+                null
+            )) {
+                hasPosTable = posCur.moveToFirst() && posCur.getInt(0) > 0;
+            }
+            if (!hasSensesTable && !hasPosTable) {
+                throw new IOException("Missing senses or Core parts_of_speech schema table");
             }
             try (Cursor countCur = db.rawQuery("SELECT COUNT(*) FROM entries;", null)) {
                 if (!countCur.moveToFirst() || countCur.getInt(0) <= 0) {
                     throw new IOException("English dictionary entries table is empty");
+                }
+            }
+            if (!hasSensesTable && hasPosTable) {
+                try (Cursor defCur = db.rawQuery(
+                    "SELECT COUNT(*) FROM entries WHERE primary_definition IS NOT NULL AND length(primary_definition) > 0;",
+                    null
+                )) {
+                    if (!defCur.moveToFirst() || defCur.getInt(0) <= 0) {
+                        throw new IOException("Core English dictionary entries lack primary definitions");
+                    }
                 }
             }
             return readDbSummaryFromOpenDb(db);
@@ -1155,7 +1192,9 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 if ("accepted_entries".equals(k)
                         || "distinct_headwords".equals(k)
                         || "total_senses".equals(k)
-                        || "schema_version".equals(k)) {
+                        || "schema_version".equals(k)
+                        || "core_primary_senses".equals(k)
+                        || "total_word_forms".equals(k)) {
                     try {
                         obj.put(k, Integer.parseInt(v));
                     } catch (NumberFormatException ignored) {

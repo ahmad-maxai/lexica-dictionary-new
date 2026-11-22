@@ -284,6 +284,14 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                 </div>
               )}
             </div>
+
+            {word.isCoreOnly && !word.extendedInstalled && (
+              <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400">
+                {word.extraSensesCount && word.extraSensesCount > 0
+                  ? `Showing primary Core definition (${word.extraSensesCount} additional ${word.extraSensesCount === 1 ? 'sense' : 'senses'}, examples & etymology belong to the optional Extended pack).`
+                  : 'Showing Core offline entry. Optional Extended enrichment (examples, etymology & extra pronunciations) is not installed.'}
+              </div>
+            )}
           </div>
 
           {/* Morphological & Inflected Forms */}

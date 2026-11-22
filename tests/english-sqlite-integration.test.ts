@@ -589,6 +589,157 @@ function createSchemaV2FixtureEnglishSqliteDb(filePath: string): void {
   db.close();
 }
 
+function createSchemaV3CoreAndExtendedFixtures(corePath: string, extPath: string): void {
+  if (fs.existsSync(corePath)) fs.unlinkSync(corePath);
+  if (fs.existsSync(extPath)) fs.unlinkSync(extPath);
+
+  const cDb = createCompatDb(corePath, false);
+  cDb.exec(`
+    PRAGMA page_size = 16384;
+    PRAGMA foreign_keys = ON;
+    CREATE TABLE metadata (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL) WITHOUT ROWID;
+    CREATE TABLE sources (
+      id INTEGER PRIMARY KEY, code TEXT NOT NULL, name TEXT NOT NULL,
+      license TEXT NOT NULL, attribution_text TEXT NOT NULL,
+      source_url TEXT NOT NULL, dataset_version TEXT NOT NULL
+    );
+    CREATE TABLE parts_of_speech (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+    CREATE TABLE entries (
+      id INTEGER PRIMARY KEY,
+      headword_lower TEXT NOT NULL,
+      headword TEXT,
+      headword_norm TEXT,
+      pos_id INTEGER NOT NULL REFERENCES parts_of_speech(id),
+      primary_ipa TEXT,
+      primary_definition TEXT NOT NULL,
+      extra_senses_count INTEGER NOT NULL DEFAULT 0,
+      source_id INTEGER NOT NULL REFERENCES sources(id)
+    );
+    CREATE TABLE word_forms (
+      id INTEGER PRIMARY KEY,
+      entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+      form_lower TEXT NOT NULL,
+      form TEXT,
+      form_norm TEXT
+    );
+    CREATE VIRTUAL TABLE entries_fts USING fts5(
+      headword, primary_definition, content='', detail=none, tokenize = 'unicode61 remove_diacritics 1'
+    );
+  `);
+
+  cDb.prepare(
+    `INSERT INTO sources (id, code, name, license, attribution_text, source_url, dataset_version) VALUES (?, ?, ?, ?, ?, ?, ?);`
+  ).run(
+    1,
+    'src-kaikki-enwiktionary',
+    ENGLISH_PACK_MANIFEST.attribution.sourceName,
+    ENGLISH_PACK_MANIFEST.attribution.license,
+    ENGLISH_PACK_MANIFEST.attribution.attributionText,
+    ENGLISH_PACK_MANIFEST.attribution.sourceUrl,
+    ENGLISH_PACK_MANIFEST.datasetVersion
+  );
+  cDb.prepare(`INSERT INTO parts_of_speech (id, name) VALUES (?, ?);`).run(1, 'noun');
+  cDb.prepare(`INSERT INTO parts_of_speech (id, name) VALUES (?, ?);`).run(2, 'adj');
+  cDb.prepare(`INSERT INTO parts_of_speech (id, name) VALUES (?, ?);`).run(3, 'verb');
+
+  const insEntry = cDb.prepare(
+    `INSERT INTO entries (id, headword_lower, headword, headword_norm, pos_id, primary_ipa, primary_definition, extra_senses_count, source_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`
+  );
+  const insForm = cDb.prepare(
+    `INSERT INTO word_forms (entry_id, form_lower, form, form_norm) VALUES (?, ?, ?, ?);`
+  );
+  const insFts = cDb.prepare(
+    `INSERT INTO entries_fts (rowid, headword, primary_definition) VALUES (?, ?, ?);`
+  );
+
+  // Entry 1: light (noun) with extra senses in Extended
+  insEntry.run(1, 'light', null, null, 1, '[laɪt]', 'Visible electromagnetic radiation enabling sight.', 1, 1);
+  insForm.run(1, 'lights', null, null);
+  insFts.run(1, 'light', 'Visible electromagnetic radiation enabling sight.');
+
+  // Entry 2: régime (noun) with partial-indexed headword_norm='regime' and form_norm='regimes'
+  insEntry.run(2, 'régime', null, 'regime', 1, '/ɹeɪˈʒiːm/', 'A mode of rule or management; a form of government.', 0, 1);
+  insForm.run(2, 'régimes', null, 'regimes');
+  insFts.run(2, 'régime', 'A mode of rule or management; a form of government.');
+
+  // Entry 3: run (verb) with irregular inflected form + normalized contraction
+  insEntry.run(3, 'run', null, null, 3, '/ɹʌn/', 'To move swiftly on foot so that both feet leave the ground.', 2, 1);
+  insForm.run(3, 'running', null, null);
+  insForm.run(3, "runnin'", null, 'runnin');
+  insFts.run(3, 'run', 'To move swiftly on foot so that both feet leave the ground.');
+
+  // Entry 4: Serendipity (noun) explicit casing
+  insEntry.run(4, 'serendipity', 'Serendipity', null, 1, '/ˌsɛɹ.ənˈdɪp.ɪ.ti/', 'The occurrence of fortunate discoveries by chance.', 0, 1);
+  insFts.run(4, 'Serendipity', 'The occurrence of fortunate discoveries by chance.');
+
+  // Entry 5: photosynthesis (noun) for FTS5 query test
+  insEntry.run(5, 'photosynthesis', null, null, 1, '/ˌfəʊ.təʊˈsɪn.θə.sɪs/', 'The biological process converting solar knowledge and light energy.', 0, 1);
+  insFts.run(5, 'photosynthesis', 'The biological process converting solar knowledge and light energy.');
+
+  cDb.exec(`
+    CREATE INDEX idx_core_entries_hw_lower ON entries(headword_lower);
+    CREATE INDEX idx_core_entries_hw_norm ON entries(headword_norm) WHERE headword_norm IS NOT NULL;
+    CREATE INDEX idx_core_wf_lower ON word_forms(form_lower);
+    CREATE INDEX idx_core_wf_norm ON word_forms(form_norm) WHERE form_norm IS NOT NULL;
+    CREATE INDEX idx_core_wf_entry_id ON word_forms(entry_id);
+  `);
+
+  const cMeta = cDb.prepare(`INSERT INTO metadata (key, value) VALUES (?, ?);`);
+  cMeta.run('schema_version', '3');
+  cMeta.run('pack_layer', 'core');
+  cMeta.run('dataset_name', 'Lexica English Monolingual Dictionary (Core)');
+  cMeta.run('pack_version', '0.4.0-core');
+  cMeta.run('accepted_entries', '5');
+  cMeta.run('distinct_headwords', '5');
+  cMeta.run('total_senses', '8');
+  cMeta.run('core_primary_senses', '5');
+  cMeta.run('total_word_forms', '4');
+  cMeta.run('source_name', ENGLISH_PACK_MANIFEST.attribution.sourceName);
+  cMeta.run('source_license', ENGLISH_PACK_MANIFEST.attribution.license);
+  cMeta.run('source_attribution', ENGLISH_PACK_MANIFEST.attribution.attributionText);
+  cDb.close();
+
+  const eDb = createCompatDb(extPath, false);
+  eDb.exec(`
+    PRAGMA page_size = 16384;
+    CREATE TABLE metadata (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL) WITHOUT ROWID;
+    CREATE TABLE tag_sets (id INTEGER PRIMARY KEY, tags_json TEXT NOT NULL);
+    CREATE TABLE pronunciations (id INTEGER PRIMARY KEY, all_ipas TEXT NOT NULL);
+    CREATE TABLE etymologies (id INTEGER PRIMARY KEY, text TEXT NOT NULL);
+    CREATE TABLE audio_files (id INTEGER PRIMARY KEY, filename TEXT NOT NULL);
+    CREATE TABLE entry_extensions (
+      entry_id INTEGER PRIMARY KEY,
+      pronunciation_id INTEGER, audio_id INTEGER, etymology_id INTEGER,
+      primary_sense_number INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE TABLE senses_ext (
+      id INTEGER PRIMARY KEY,
+      entry_id INTEGER NOT NULL,
+      sense_number INTEGER NOT NULL,
+      definition TEXT,
+      tags_id INTEGER,
+      examples TEXT,
+      synonyms TEXT,
+      antonyms TEXT
+    );
+    CREATE INDEX idx_ext_senses_entry ON senses_ext(entry_id, sense_number);
+  `);
+  eDb.prepare(`INSERT INTO pronunciations (id, all_ipas) VALUES (?, ?);`)
+    .run(1, JSON.stringify([['[laɪt]', ['Received-Pronunciation']], ['[ɫɐɪt]', ['General-American']]]));
+  eDb.prepare(`INSERT INTO etymologies (id, text) VALUES (?, ?);`)
+    .run(1, 'From Old English lēoht.');
+  eDb.prepare(`INSERT INTO tag_sets (id, tags_json) VALUES (?, ?);`).run(1, '["countable","uncountable"]');
+  eDb.prepare(`INSERT INTO entry_extensions (entry_id, pronunciation_id, audio_id, etymology_id, primary_sense_number) VALUES (?, ?, ?, ?, ?);`)
+    .run(1, 1, null, 1, 1);
+  eDb.prepare(`INSERT INTO senses_ext (id, entry_id, sense_number, definition, tags_id, examples, synonyms, antonyms) VALUES (?, ?, ?, ?, ?, ?, ?, ?);`)
+    .run(1, 1, 1, null, 1, JSON.stringify([['Morning light filled the courtyard.', 'Sample']]), JSON.stringify(['illumination']), null);
+  eDb.prepare(`INSERT INTO senses_ext (id, entry_id, sense_number, definition, tags_id, examples, synonyms, antonyms) VALUES (?, ?, ?, ?, ?, ?, ?, ?);`)
+    .run(2, 1, 2, 'A source of illumination such as a lamp or lantern.', null, null, JSON.stringify(['lamp']), null);
+  eDb.prepare(`INSERT INTO metadata (key, value) VALUES (?, ?);`).run('pack_layer', 'extended');
+  eDb.close();
+}
+
 async function main(): Promise<void> {
   console.log('\n==============================================================');
   console.log('LEXICA ENGLISH SQLITE INTEGRATION & FAILURE MODE TEST SUITE');
@@ -683,7 +834,8 @@ async function main(): Promise<void> {
       });
       const androidMissing = await searchEnglishStandardUnified('epistemology');
       assert.strictEqual(androidMissing.status, 'language_not_installed');
-      assert(androidMissing.message?.includes('44.82 MB'), 'Must expose actual compressed size');
+      const expectedCompressedMb = (ENGLISH_PACK_MANIFEST.compressedSizeBytes / (1024 * 1024)).toFixed(2);
+      assert(androidMissing.message?.includes(`${expectedCompressedMb} MB`), `Must expose actual compressed size (${expectedCompressedMb} MB)`);
 
       englishPackService.setTestingOverrides({ platform: 'web' });
       const webFallback = await searchEnglishStandardUnified('Water');
@@ -786,6 +938,64 @@ async function main(): Promise<void> {
     });
 
     // Optional full 75,000-entry prototype DB verification when running on build machine with /tmp/lexica_english_v020.db
+    const fullCoreV040Path = '/tmp/lexica_core_v040/lexica_english_core.db';
+    const fullExtV040Path = '/tmp/lexica_core_v040/lexica_english_extended.db';
+    if (fs.existsSync(fullCoreV040Path)) {
+      await runAsyncTest('4.9c Full 75,000-entry Schema v3 Core (v0.4.0-core) & optional Extended SQLite DB verification', async () => {
+        const coreExec = new NodeSqliteExecutor(fullCoreV040Path);
+        englishSqliteRepo.setExecutorForTest(coreExec);
+        for (const word of ['epistemology', 'photosynthesis', 'serendipity', 'ubiquitous', 'dictionary', 'run', 'light']) {
+          const r = await searchEnglishStandardUnified(word, { limit: 10, offset: 0 });
+          assert.strictEqual(r.status, 'ok', `Expected ok for ${word} in Core v0.4.0 DB`);
+          assert(r.results.length > 0, `Expected hits for ${word}`);
+          assert(r.results[0].senses.length === 1, `Core-only lookup exposes primary sense for ${word}`);
+          assert(r.results[0].senses[0].definition.trim().length > 0, `Non-empty primary definition for ${word}`);
+          assert.strictEqual(r.results[0].entry.isCoreOnly, true);
+        }
+        // Normalized diacritic & apostrophe lookup on 75k dataset
+        const regimeRes = await searchEnglishStandardUnified('regime');
+        assert.strictEqual(regimeRes.status, 'ok');
+        assert(regimeRes.results.some((r) => r.entry.headword === 'régime'), 'regime must match régime via headword_norm');
+
+        const itsRes = await searchEnglishStandardUnified('its');
+        assert.strictEqual(itsRes.status, 'ok');
+        assert(itsRes.results.some((r) => r.entry.headword === "it's"), "its must match it's via headword_norm");
+
+        // Audited Ally cleaning check (zero empty [[]] brackets)
+        const allyRes = await searchEnglishStandardUnified('Ally');
+        assert.strictEqual(allyRes.status, 'ok');
+        for (const item of allyRes.results) {
+          assert(!item.entry.definition.includes('[[]]'), 'Markup artifact [[]] must be cleaned');
+        }
+
+        // Real 75k FTS5 & word-form fallback checks on Core DB
+        const epistFts = await searchEnglishStandardUnified('branch philosophy acquired');
+        assert.strictEqual(epistFts.status, 'ok');
+        assert(epistFts.results.some((r) => r.entry.headword === 'epistemology'), 'FTS5 definition search must match epistemology');
+
+        const formFull = await searchEnglishStandardUnified('swam');
+        assert.strictEqual(formFull.status, 'ok');
+        assert(formFull.results.some((r) => r.entry.headword === 'swim'), 'word_forms lookup must match swim for swam');
+
+        const meta = englishSqliteRepo.getCachedMetadata();
+        assert.strictEqual(meta?.schemaVersion, 3);
+        assert.strictEqual(meta?.packLayer, 'core');
+        assert.strictEqual(meta?.acceptedEntries, 75000);
+        assert.strictEqual(meta?.distinctHeadwords, 45317);
+
+        if (fs.existsSync(fullExtV040Path)) {
+          englishSqliteRepo.setExtendedDbPathForTest(fullExtV040Path);
+          await englishSqliteRepo.closeConnection();
+          const lightExt = await searchEnglishStandardUnified('light');
+          assert.strictEqual(lightExt.results[0].entry.extendedInstalled, true);
+          assert((lightExt.results[0].entry.allIpas?.length || 0) >= 6, 'Attached Extended DB restores all dialect IPAs');
+          assert(lightExt.results[0].senses.length > 1, 'Attached Extended DB restores secondary senses');
+          englishSqliteRepo.setExtendedDbPathForTest(null);
+          await englishSqliteRepo.closeConnection();
+        }
+      });
+    }
+
     const fullV030Path = '/tmp/lexica_release_v030/lexica_english.db';
     if (fs.existsSync(fullV030Path)) {
       await runAsyncTest('4.9b Full 75,000-entry Schema v2 (v0.3.0) SQLite DB verification', async () => {
@@ -833,10 +1043,17 @@ async function main(): Promise<void> {
       const liveValidation = validateEnglishPackManifest(ENGLISH_PACK_MANIFEST);
       assert.strictEqual(liveValidation.valid, true, liveValidation.message);
       assert.strictEqual(ENGLISH_PACK_MANIFEST.packId, 'en-wiktionary-sqlite');
-      assert.strictEqual(ENGLISH_PACK_MANIFEST.packVersion, '0.3.0');
-      assert.strictEqual(ENGLISH_PACK_MANIFEST.schemaVersion, 2);
-      assert.strictEqual(ENGLISH_PACK_MANIFEST.compressedSizeBytes, 47000179);
-      assert.strictEqual(ENGLISH_PACK_MANIFEST.uncompressedSizeBytes, 110706688);
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.packLayer, 'core');
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.packVersion, '0.4.0-core');
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.schemaVersion, 3);
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.releaseTag, 'prototype-en-core-v0.4.0');
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.compressedSizeBytes, 8602919);
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.uncompressedSizeBytes, 18546688);
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.corePrimarySenses, 75000);
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.totalWordForms, 134837);
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.extendedCompanion?.optional, true);
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.extendedCompanion?.autoDownload, false);
+      assert.strictEqual(ENGLISH_PACK_MANIFEST.extendedCompanion?.downloadUrl, null);
       assert(/^[a-f0-9]{64}$/.test(ENGLISH_PACK_MANIFEST.compressedSha256));
       assert(/^[a-f0-9]{64}$/.test(ENGLISH_PACK_MANIFEST.uncompressedSha256));
 
@@ -1166,6 +1383,144 @@ async function main(): Promise<void> {
         else (globalThis as Record<string, unknown>).localStorage = prevLocalStorage;
       }
     });
+
+    const tmpV3CorePath = path.join(os.tmpdir(), `lexica_en_v3_core_test_${process.pid}.db`);
+    const tmpV3ExtPath = path.join(os.tmpdir(), `lexica_en_v3_ext_test_${process.pid}.db`);
+    createSchemaV3CoreAndExtendedFixtures(tmpV3CorePath, tmpV3ExtPath);
+    try {
+      await runAsyncTest('4.15 Schema v3 Core standalone query (no senses table), normalization & FTS5', async () => {
+        englishPackService.resetTestingOverrides();
+        englishSqliteRepo.setExecutorForTest(new NodeSqliteExecutor(tmpV3CorePath));
+
+        const light = await searchEnglishStandardUnified('LIGHT');
+        assert.strictEqual(light.status, 'ok');
+        assert.strictEqual(light.results[0].entry.isCoreOnly, true);
+        assert.strictEqual(light.results[0].entry.extendedInstalled, false);
+        assert.strictEqual(light.results[0].entry.extraSensesCount, 1);
+        assert.strictEqual(light.results[0].senses.length, 1);
+        assert.strictEqual(light.results[0].entry.ipa, '[laɪt]');
+
+        // Diacritic and apostrophe normalization via headword_norm / form_norm
+        const regime = await searchEnglishStandardUnified('regime');
+        assert.strictEqual(regime.status, 'ok');
+        assert.strictEqual(regime.results[0].entry.headword, 'régime');
+        assert.strictEqual(regime.results[0].matchedField, 'headword-normalized');
+
+        const formNorm = await searchEnglishStandardUnified('regimes');
+        assert.strictEqual(formNorm.status, 'ok');
+        assert.strictEqual(formNorm.results[0].matchedField, 'morphology');
+        assert.strictEqual(formNorm.results[0].entry.headword, 'régime');
+
+        const runForm = await searchEnglishStandardUnified('runnin');
+        assert.strictEqual(runForm.status, 'ok');
+        assert.strictEqual(runForm.results[0].matchedField, 'morphology');
+        assert.strictEqual(runForm.results[0].entry.headword, 'run');
+
+        // Explicit casing & prefix & FTS5 (detail=none)
+        const cap = await searchEnglishStandardUnified('serendipity');
+        assert.strictEqual(cap.results[0].entry.headword, 'Serendipity');
+
+        const pref = await searchEnglishStandardUnified('photosyn');
+        assert(pref.results.some((r) => r.entry.headword === 'photosynthesis'));
+
+        const fts = await searchEnglishStandardUnified('solar knowledge');
+        assert.strictEqual(fts.status, 'ok');
+        assert.strictEqual(fts.results[0].matchedField, 'definition');
+        assert.strictEqual(fts.results[0].entry.headword, 'photosynthesis');
+
+        const meta = englishSqliteRepo.getCachedMetadata();
+        assert.strictEqual(meta?.schemaVersion, 3);
+        assert.strictEqual(meta?.packLayer, 'core');
+        assert.strictEqual(meta?.extendedAttached, false);
+      });
+
+      await runAsyncTest('4.16 Optional Extended DB attachment enriches Core seamlessly and detaches cleanly', async () => {
+        englishSqliteRepo.setExecutorForTest(new NodeSqliteExecutor(tmpV3CorePath));
+        englishSqliteRepo.setExtendedDbPathForTest(tmpV3ExtPath);
+        await englishSqliteRepo.closeConnection();
+
+        const lightExt = await searchEnglishStandardUnified('light');
+        assert.strictEqual(lightExt.status, 'ok');
+        assert.strictEqual(lightExt.results[0].entry.isCoreOnly, false);
+        assert.strictEqual(lightExt.results[0].entry.extendedInstalled, true);
+        assert.strictEqual(lightExt.results[0].senses.length, 2, 'Secondary senses loaded from Extended DB');
+        assert.strictEqual(lightExt.results[0].entry.allIpas?.length, 2, 'Dialect IPAs loaded from Extended DB');
+        assert.strictEqual(lightExt.results[0].entry.etymology, 'From Old English lēoht.');
+        assert.strictEqual(lightExt.results[0].senses[0].examples[0]?.sourceText, 'Morning light filled the courtyard.');
+
+        // Detach Extended -> Core stays fully operational
+        englishSqliteRepo.setExtendedDbPathForTest(null);
+        await englishSqliteRepo.closeConnection();
+        const lightCoreAgain = await searchEnglishStandardUnified('light');
+        assert.strictEqual(lightCoreAgain.status, 'ok');
+        assert.strictEqual(lightCoreAgain.results[0].entry.isCoreOnly, true);
+        assert.strictEqual(lightCoreAgain.results[0].senses.length, 1);
+      });
+
+      await runAsyncTest('4.17 Core pack layer status metadata, duplicate guard & backup compatibility', async () => {
+        englishPackService.resetTestingOverrides();
+        let networkCalls = 0;
+        englishPackService.setTestingOverrides({
+          platform: 'android',
+          nativeBridge: {
+            async getPackStatus() {
+              return {
+                installed: true,
+                dbPath: tmpV3CorePath,
+                dbSizeBytes: ENGLISH_PACK_MANIFEST.uncompressedSizeBytes,
+                partialBytes: 0,
+                availableBytes: 1_500_000_000,
+                inProgress: false,
+                datasetVersion: ENGLISH_PACK_MANIFEST.packVersion,
+                schemaVersion: 3,
+                packLayer: 'core',
+                acceptedEntries: 75000,
+                distinctHeadwords: 45317,
+                totalSenses: 190672,
+                corePrimarySenses: 75000,
+                totalWordForms: 134837,
+                extendedInstalled: false,
+                extendedDbPath: '',
+                extendedDbSizeBytes: 0,
+              };
+            },
+            async installPack() {
+              networkCalls++;
+              return { installed: true };
+            },
+            async cancelInstall() { return { cancelled: true }; },
+            async removePack() { return { removed: true, availableBytes: 1_500_000_000 }; },
+            async verifyInstalledPack() {
+              return {
+                installed: true,
+                dbPath: tmpV3CorePath,
+                dbSizeBytes: ENGLISH_PACK_MANIFEST.uncompressedSizeBytes,
+                datasetVersion: ENGLISH_PACK_MANIFEST.packVersion,
+                acceptedEntries: 75000,
+              };
+            },
+            async getMemoryMetrics() {
+              return { javaHeapUsedBytes: 0, javaHeapMaxBytes: 0, nativeHeapAllocatedBytes: 0, systemAvailMemBytes: 0, systemTotalMemBytes: 0, lowMemory: false };
+            },
+            async addListener() { return { remove: async () => {} }; },
+          },
+        });
+
+        const status = await englishPackService.refreshStatus();
+        assert.strictEqual(status.packLayer, 'core');
+        assert.strictEqual(status.schemaVersion, 3);
+        assert.strictEqual(status.corePrimarySenses, 75000);
+        assert.strictEqual(status.totalWordForms, 134837);
+        assert.strictEqual(status.extendedInstalled, false);
+
+        const installCheck = await englishPackService.installEnglishPack();
+        assert.strictEqual(installCheck.alreadyInstalled, true);
+        assert.strictEqual(networkCalls, 0, 'Duplicate v0.4.0-core install must make 0 network requests');
+      });
+    } finally {
+      if (fs.existsSync(tmpV3CorePath)) fs.unlinkSync(tmpV3CorePath);
+      if (fs.existsSync(tmpV3ExtPath)) fs.unlinkSync(tmpV3ExtPath);
+    }
   } finally {
     englishSqliteRepo.setExecutorForTest(null);
     englishPackService.resetTestingOverrides();

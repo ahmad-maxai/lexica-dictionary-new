@@ -10,6 +10,7 @@ import {
 } from '../types/dictionary';
 import { ENGLISH_PACK_MANIFEST, isEnglishSqliteIntegrationEnabled } from '../config/englishDictionaryConfig';
 import { englishPackService, type DeviceMemoryMetrics } from './englishPackService';
+import { TextNormalization } from './textNormalization';
 
 export interface SqlQueryExecutor {
   open(dbPath: string): Promise<void>;
@@ -86,6 +87,8 @@ interface SqlEntryRow {
   audio_file: string | null;
   etymology: string | null;
   source_id: string;
+  primary_definition?: string | null;
+  extra_senses_count?: number | null;
 }
 
 interface SqlSenseRow {
@@ -110,6 +113,8 @@ export interface EnglishSqliteMetadata {
   datasetName: string;
   packVersion: string;
   schemaVersion: number;
+  packLayer: 'core' | 'full';
+  extendedAttached: boolean;
   acceptedEntries: number;
   distinctHeadwords: number;
   totalSenses: number;
@@ -247,6 +252,11 @@ export class EnglishSqliteRepository {
   private openPromise: Promise<void> | null = null;
   private cachedMeta: EnglishSqliteMetadata | null = null;
   private schemaVersion = 1;
+  private isCoreLayer = false;
+  private hasHeadwordNormCol = false;
+  private hasFormNormCol = false;
+  private extendedDbPath: string | null = null;
+  private extendedAttached = false;
   private fts5Supported = false;
   private lastColdOpenMs: number | null = null;
   private lastWarmOpenMs: number | null = null;
@@ -261,6 +271,11 @@ export class EnglishSqliteRepository {
     this.openPromise = null;
     this.cachedMeta = null;
     this.schemaVersion = 1;
+    this.isCoreLayer = false;
+    this.hasHeadwordNormCol = false;
+    this.hasFormNormCol = false;
+    this.extendedDbPath = null;
+    this.extendedAttached = false;
     this.fts5Supported = false;
     if (executor) {
       this.executor = executor;
@@ -269,6 +284,10 @@ export class EnglishSqliteRepository {
       this.executor = new CapacitorSqliteExecutor();
       this.customExecutorInjected = false;
     }
+  }
+
+  public setExtendedDbPathForTest(extendedPath: string | null): void {
+    this.extendedDbPath = extendedPath;
   }
 
   public isPackActive(): boolean {
@@ -282,6 +301,7 @@ export class EnglishSqliteRepository {
   public async closeConnection(): Promise<void> {
     this.openPromise = null;
     this.cachedMeta = null;
+    this.extendedAttached = false;
     await this.executor.close();
   }
 
@@ -294,12 +314,16 @@ export class EnglishSqliteRepository {
     this.openPromise = (async () => {
       const t0 = performance.now();
       let targetPath = explicitPath || this.executor.getDbPath() || '';
+      let detectedExtPath = this.extendedDbPath;
       if (!targetPath) {
         const status = await englishPackService.ensureStatusLoaded();
         if (!status.installed || !status.dbPath) {
           throw new Error('English offline SQLite database is not installed.');
         }
         targetPath = status.dbPath;
+        if (!detectedExtPath && status.extendedInstalled && status.extendedDbPath) {
+          detectedExtPath = status.extendedDbPath;
+        }
       }
 
       await this.executor.open(targetPath);
@@ -312,7 +336,7 @@ export class EnglishSqliteRepository {
         // Ignore if test executor rejects PRAGMA adjustments
       }
 
-      const [metaRows, sourceRows, posTableCheck] = await Promise.all([
+      const [metaRows, sourceRows, posTableCheck, sensesTableCheck, entryColsInfo, wfColsInfo] = await Promise.all([
         this.executor.query<{ key: string; value: string }>('SELECT key, value FROM metadata;'),
         this.executor.query<{
           name: string;
@@ -323,6 +347,11 @@ export class EnglishSqliteRepository {
         this.executor.query<{ cnt: number }>(
           "SELECT COUNT(*) AS cnt FROM sqlite_master WHERE type='table' AND name='parts_of_speech';"
         ),
+        this.executor.query<{ cnt: number }>(
+          "SELECT COUNT(*) AS cnt FROM sqlite_master WHERE type='table' AND name='senses';"
+        ),
+        this.executor.query<{ name: string }>('PRAGMA table_info(entries);'),
+        this.executor.query<{ name: string }>('PRAGMA table_info(word_forms);'),
       ]);
 
       const metaMap = new Map<string, string>();
@@ -330,10 +359,42 @@ export class EnglishSqliteRepository {
         metaMap.set(r.key, r.value);
       }
 
-      const detectedSchema = Number(posTableCheck[0]?.cnt || 0) > 0
-        ? 2
-        : Number(metaMap.get('schema_version') || 1);
-      this.schemaVersion = detectedSchema >= 2 ? 2 : 1;
+      const hasPosTable = Number(posTableCheck[0]?.cnt || 0) > 0;
+      const hasSensesTable = Number(sensesTableCheck[0]?.cnt || 0) > 0;
+      const entryColNames = new Set(entryColsInfo.map((c) => c.name));
+      const wfColNames = new Set(wfColsInfo.map((c) => c.name));
+      const metaSchemaVer = Number(metaMap.get('schema_version') || 0);
+      const isCorePack =
+        metaMap.get('pack_layer') === 'core' ||
+        (hasPosTable && !hasSensesTable && entryColNames.has('primary_definition'));
+
+      if (metaSchemaVer >= 3 || isCorePack) {
+        this.schemaVersion = 3;
+        this.isCoreLayer = isCorePack;
+      } else if (hasPosTable || metaSchemaVer >= 2) {
+        this.schemaVersion = 2;
+        this.isCoreLayer = false;
+      } else {
+        this.schemaVersion = 1;
+        this.isCoreLayer = false;
+      }
+
+      this.hasHeadwordNormCol = entryColNames.has('headword_norm');
+      this.hasFormNormCol = wfColNames.has('form_norm');
+
+      // Optional Extended database attachment (never required for Core functionality)
+      this.extendedAttached = false;
+      if (this.isCoreLayer && detectedExtPath) {
+        try {
+          await this.executor.query('ATTACH DATABASE ? AS ext;', [detectedExtPath]);
+          const extCheck = await this.executor.query<{ cnt: number }>(
+            "SELECT COUNT(*) AS cnt FROM ext.sqlite_master WHERE type='table' AND name='senses_ext';"
+          );
+          this.extendedAttached = Number(extCheck[0]?.cnt || 0) > 0;
+        } catch {
+          this.extendedAttached = false;
+        }
+      }
 
       const src = sourceRows[0];
       let ftsOk = false;
@@ -351,6 +412,8 @@ export class EnglishSqliteRepository {
         datasetName: metaMap.get('dataset_name') || 'Lexica English Monolingual Dictionary',
         packVersion: metaMap.get('pack_version') || ENGLISH_PACK_MANIFEST.packVersion,
         schemaVersion: this.schemaVersion,
+        packLayer: this.isCoreLayer ? 'core' : 'full',
+        extendedAttached: this.extendedAttached,
         acceptedEntries: Number(metaMap.get('accepted_entries') || 0),
         distinctHeadwords: Number(metaMap.get('distinct_headwords') || 0),
         totalSenses: Number(metaMap.get('total_senses') || 0),
@@ -384,6 +447,18 @@ export class EnglishSqliteRepository {
   }
 
   private getEntrySelectColumns(): string {
+    if (this.schemaVersion >= 3 && this.isCoreLayer) {
+      if (this.extendedAttached) {
+        return `e.id, COALESCE(e.headword, e.headword_lower) AS headword, e.headword_lower,
+                pos.name AS part_of_speech, e.primary_ipa, pr.all_ipas,
+                af.filename AS audio_file, et.text AS etymology, src.code AS source_id,
+                e.primary_definition, e.extra_senses_count`;
+      }
+      return `e.id, COALESCE(e.headword, e.headword_lower) AS headword, e.headword_lower,
+              pos.name AS part_of_speech, e.primary_ipa, NULL AS all_ipas,
+              NULL AS audio_file, NULL AS etymology, src.code AS source_id,
+              e.primary_definition, e.extra_senses_count`;
+    }
     if (this.schemaVersion >= 2) {
       return `e.id, COALESCE(e.headword, e.headword_lower) AS headword, e.headword_lower,
               pos.name AS part_of_speech, e.primary_ipa, pr.all_ipas,
@@ -394,6 +469,18 @@ export class EnglishSqliteRepository {
   }
 
   private getEntryJoins(): string {
+    if (this.schemaVersion >= 3 && this.isCoreLayer) {
+      if (this.extendedAttached) {
+        return `JOIN parts_of_speech pos ON pos.id = e.pos_id
+                LEFT JOIN ext.entry_extensions ex ON ex.entry_id = e.id
+                LEFT JOIN ext.pronunciations pr ON pr.id = ex.pronunciation_id
+                LEFT JOIN ext.audio_files af ON af.id = ex.audio_id
+                LEFT JOIN ext.etymologies et ON et.id = ex.etymology_id
+                JOIN sources src ON src.id = e.source_id`;
+      }
+      return `JOIN parts_of_speech pos ON pos.id = e.pos_id
+              JOIN sources src ON src.id = e.source_id`;
+    }
     if (this.schemaVersion >= 2) {
       return `JOIN parts_of_speech pos ON pos.id = e.pos_id
               LEFT JOIN pronunciations pr ON pr.id = e.pronunciation_id
@@ -408,31 +495,107 @@ export class EnglishSqliteRepository {
     return this.schemaVersion >= 2 ? 'pos.name' : 'e.part_of_speech';
   }
 
-  private buildPrefixCondition(prefixLower: string): { sql: string; params: unknown[] } {
+  private buildColumnPrefixCondition(columnExpr: string, prefixLower: string): { sql: string; params: unknown[] } {
     const upper = computePrefixUpperBound(prefixLower);
     if (upper) {
       return {
-        sql: '(e.headword_lower >= ? AND e.headword_lower < ?)',
+        sql: `(${columnExpr} >= ? AND ${columnExpr} < ?)`,
         params: [prefixLower, upper],
       };
     }
     return {
-      sql: "e.headword_lower LIKE ? ESCAPE '\\'",
+      sql: `${columnExpr} LIKE ? ESCAPE '\\'`,
       params: [`${escapeSqlLike(prefixLower)}%`],
     };
   }
 
-  private buildNotPrefixCondition(prefixLower: string): { sql: string; params: unknown[] } {
-    const upper = computePrefixUpperBound(prefixLower);
-    if (upper) {
+  private buildPrefixCondition(prefixLower: string): { sql: string; params: unknown[] } {
+    return this.buildColumnPrefixCondition('e.headword_lower', prefixLower);
+  }
+
+  private buildExactHeadwordCondition(qLower: string, qNorm: string): { sql: string; params: unknown[] } {
+    if (!this.hasHeadwordNormCol) {
+      return { sql: 'e.headword_lower = ?', params: [qLower] };
+    }
+    if (qNorm && qNorm !== qLower) {
       return {
-        sql: 'NOT (e.headword_lower >= ? AND e.headword_lower < ?)',
-        params: [prefixLower, upper],
+        sql: '(e.headword_lower = ? OR e.headword_norm = ? OR e.headword_lower = ?)',
+        params: [qLower, qNorm, qNorm],
       };
     }
     return {
-      sql: "e.headword_lower NOT LIKE ? ESCAPE '\\'",
-      params: [`${escapeSqlLike(prefixLower)}%`],
+      sql: '(e.headword_lower = ? OR e.headword_norm = ?)',
+      params: [qLower, qLower],
+    };
+  }
+
+  private buildNotExactHeadwordCondition(qLower: string, qNorm: string): { sql: string; params: unknown[] } {
+    if (!this.hasHeadwordNormCol) {
+      return { sql: 'e.headword_lower != ?', params: [qLower] };
+    }
+    if (qNorm && qNorm !== qLower) {
+      return {
+        sql: '(e.headword_lower != ? AND (e.headword_norm IS NULL OR e.headword_norm != ?) AND e.headword_lower != ?)',
+        params: [qLower, qNorm, qNorm],
+      };
+    }
+    return {
+      sql: '(e.headword_lower != ? AND (e.headword_norm IS NULL OR e.headword_norm != ?))',
+      params: [qLower, qLower],
+    };
+  }
+
+  private buildSearchPrefixCondition(qLower: string, qNorm: string): { sql: string; params: unknown[] } {
+    const base = this.buildColumnPrefixCondition('e.headword_lower', qLower);
+    if (!this.hasHeadwordNormCol || qNorm.length < 2) {
+      return base;
+    }
+    const normCond = this.buildColumnPrefixCondition('e.headword_norm', qNorm);
+    if (qNorm !== qLower) {
+      const foldedLower = this.buildColumnPrefixCondition('e.headword_lower', qNorm);
+      return {
+        sql: `(${base.sql} OR ${foldedLower.sql} OR ${normCond.sql})`,
+        params: [...base.params, ...foldedLower.params, ...normCond.params],
+      };
+    }
+    return {
+      sql: `(${base.sql} OR ${normCond.sql})`,
+      params: [...base.params, ...normCond.params],
+    };
+  }
+
+  private buildNotSearchPrefixCondition(qLower: string, qNorm: string): { sql: string; params: unknown[] } {
+    const base = this.buildColumnPrefixCondition('e.headword_lower', qLower);
+    if (!this.hasHeadwordNormCol || qNorm.length < 2) {
+      return { sql: `NOT ${base.sql}`, params: base.params };
+    }
+    const normCond = this.buildColumnPrefixCondition('e.headword_norm', qNorm);
+    if (qNorm !== qLower) {
+      const foldedLower = this.buildColumnPrefixCondition('e.headword_lower', qNorm);
+      return {
+        sql: `(NOT ${base.sql} AND NOT ${foldedLower.sql} AND (e.headword_norm IS NULL OR NOT ${normCond.sql}))`,
+        params: [...base.params, ...foldedLower.params, ...normCond.params],
+      };
+    }
+    return {
+      sql: `(NOT ${base.sql} AND (e.headword_norm IS NULL OR NOT ${normCond.sql}))`,
+      params: [...base.params, ...normCond.params],
+    };
+  }
+
+  private buildWordFormExactCondition(qLower: string, qNorm: string): { sql: string; params: unknown[] } {
+    if (!this.hasFormNormCol) {
+      return { sql: 'wf.form_lower = ?', params: [qLower] };
+    }
+    if (qNorm && qNorm !== qLower) {
+      return {
+        sql: '(wf.form_lower = ? OR wf.form_norm = ? OR wf.form_lower = ?)',
+        params: [qLower, qNorm, qNorm],
+      };
+    }
+    return {
+      sql: '(wf.form_lower = ? OR wf.form_norm = ?)',
+      params: [qLower, qLower],
     };
   }
 
@@ -542,24 +705,29 @@ export class EnglishSqliteRepository {
         };
       }
 
-      // 2. SEARCH MODE: Exact -> Prefix -> Word Forms -> FTS5 Definition Search
+      // 2. SEARCH MODE: Exact/Normalized -> Prefix -> Word Forms -> FTS5 Definition Search
       const qLower = rawQuery.toLowerCase();
-      const prefCond = this.buildPrefixCondition(qLower);
-      const notPrefCond = this.buildNotPrefixCondition(qLower);
+      const qNorm = TextNormalization.normalizeLatin(rawQuery).soft || qLower;
+      const exactCond = this.buildExactHeadwordCondition(qLower, qNorm);
+      const notExactCond = this.buildNotExactHeadwordCondition(qLower, qNorm);
+      const prefCond = this.buildSearchPrefixCondition(qLower, qNorm);
+      const notPrefCond = this.buildNotSearchPrefixCondition(qLower, qNorm);
+      const wfExactCond = this.buildWordFormExactCondition(qLower, qNorm);
+
       const posClause = posValues ? `AND ${posExpr} IN (${posValues.map(() => '?').join(',')})` : '';
       const posParams = posValues || [];
       const posJoinOnly = this.schemaVersion >= 2 && posValues ? 'JOIN parts_of_speech pos ON pos.id = e.pos_id' : '';
       const ftsJoinCond = this.schemaVersion >= 2 ? 'e.id = f.rowid' : 'e.id = f.entry_id';
 
       const exactCountRows = await this.executor.query<{ cnt: number }>(
-        `SELECT COUNT(*) AS cnt FROM entries e ${posJoinOnly} WHERE e.headword_lower = ? ${posClause};`,
-        [qLower, ...posParams]
+        `SELECT COUNT(*) AS cnt FROM entries e ${posJoinOnly} WHERE ${exactCond.sql} ${posClause};`,
+        [...exactCond.params, ...posParams]
       );
       const c1 = Number(exactCountRows[0]?.cnt || 0);
 
       const prefixCountRows = await this.executor.query<{ cnt: number }>(
-        `SELECT COUNT(*) AS cnt FROM entries e ${posJoinOnly} WHERE ${prefCond.sql} AND e.headword_lower != ? ${posClause};`,
-        [...prefCond.params, qLower, ...posParams]
+        `SELECT COUNT(*) AS cnt FROM entries e ${posJoinOnly} WHERE ${prefCond.sql} AND ${notExactCond.sql} ${posClause};`,
+        [...prefCond.params, ...notExactCond.params, ...posParams]
       );
       const c2 = Number(prefixCountRows[0]?.cnt || 0);
 
@@ -568,11 +736,11 @@ export class EnglishSqliteRepository {
          FROM word_forms wf
          JOIN entries e ON e.id = wf.entry_id
          ${posJoinOnly}
-         WHERE wf.form_lower = ?
-           AND e.headword_lower != ?
+         WHERE ${wfExactCond.sql}
+           AND ${notExactCond.sql}
            AND ${notPrefCond.sql}
            ${posClause};`,
-        [qLower, qLower, ...notPrefCond.params, ...posParams]
+        [...wfExactCond.params, ...notExactCond.params, ...notPrefCond.params, ...posParams]
       );
       const c3 = Number(formsCountRows[0]?.cnt || 0);
 
@@ -585,13 +753,13 @@ export class EnglishSqliteRepository {
            JOIN entries e ON ${ftsJoinCond}
            ${posJoinOnly}
            WHERE entries_fts MATCH ?
-             AND e.headword_lower != ?
+             AND ${notExactCond.sql}
              AND ${notPrefCond.sql}
              AND NOT EXISTS (
-               SELECT 1 FROM word_forms wf WHERE wf.entry_id = e.id AND wf.form_lower = ?
+               SELECT 1 FROM word_forms wf WHERE wf.entry_id = e.id AND ${wfExactCond.sql}
              )
              ${posClause};`,
-          [ftsQuery, qLower, ...notPrefCond.params, qLower, ...posParams]
+          [ftsQuery, ...notExactCond.params, ...notPrefCond.params, ...wfExactCond.params, ...posParams]
         );
         c4 = Number(ftsCountRows[0]?.cnt || 0);
       }
@@ -638,17 +806,19 @@ export class EnglishSqliteRepository {
         const rows = await this.executor.query<SqlEntryRow>(
           `SELECT ${entryCols}
            FROM entries e ${entryJoins}
-           WHERE e.headword_lower = ? ${posClause}
-           ORDER BY e.id ASC
+           WHERE ${exactCond.sql} ${posClause}
+           ORDER BY CASE WHEN e.headword_lower = ? THEN 0 ELSE 1 END, e.id ASC
            LIMIT ? OFFSET ?;`,
-          [qLower, ...posParams, s1.localLimit, s1.localOffset]
+          [...exactCond.params, ...posParams, qLower, s1.localLimit, s1.localOffset]
         );
         for (const r of rows) {
+          const isCaseExact = r.headword === rawQuery;
+          const isLowerExact = r.headword_lower === qLower;
           matchedItems.push({
             row: r,
-            matchedField: r.headword === rawQuery ? 'headword-exact' : 'headword-normalized',
+            matchedField: isCaseExact ? 'headword-exact' : 'headword-normalized',
             matchedTerm: r.headword,
-            score: r.headword === rawQuery ? 100 : 96,
+            score: isCaseExact ? 100 : isLowerExact ? 96 : 94,
           });
         }
       }
@@ -658,10 +828,10 @@ export class EnglishSqliteRepository {
         const rows = await this.executor.query<SqlEntryRow>(
           `SELECT ${entryCols}
            FROM entries e ${entryJoins}
-           WHERE ${prefCond.sql} AND e.headword_lower != ? ${posClause}
+           WHERE ${prefCond.sql} AND ${notExactCond.sql} ${posClause}
            ORDER BY length(e.headword_lower) ASC, e.headword_lower ASC, e.id ASC
            LIMIT ? OFFSET ?;`,
-          [...prefCond.params, qLower, ...posParams, s2.localLimit, s2.localOffset]
+          [...prefCond.params, ...notExactCond.params, ...posParams, s2.localLimit, s2.localOffset]
         );
         for (const r of rows) {
           matchedItems.push({
@@ -682,14 +852,14 @@ export class EnglishSqliteRepository {
            FROM word_forms wf
            JOIN entries e ON e.id = wf.entry_id
            ${entryJoins}
-           WHERE wf.form_lower = ?
-             AND e.headword_lower != ?
+           WHERE ${wfExactCond.sql}
+             AND ${notExactCond.sql}
              AND ${notPrefCond.sql}
              ${posClause}
            GROUP BY e.id
            ORDER BY e.headword_lower ASC, e.id ASC
            LIMIT ? OFFSET ?;`,
-          [qLower, qLower, ...notPrefCond.params, ...posParams, s3.localLimit, s3.localOffset]
+          [...wfExactCond.params, ...notExactCond.params, ...notPrefCond.params, ...posParams, s3.localLimit, s3.localOffset]
         );
         for (const r of rows) {
           matchedItems.push({
@@ -709,15 +879,15 @@ export class EnglishSqliteRepository {
            JOIN entries e ON ${ftsJoinCond}
            ${entryJoins}
            WHERE entries_fts MATCH ?
-             AND e.headword_lower != ?
+             AND ${notExactCond.sql}
              AND ${notPrefCond.sql}
              AND NOT EXISTS (
-               SELECT 1 FROM word_forms wf WHERE wf.entry_id = e.id AND wf.form_lower = ?
+               SELECT 1 FROM word_forms wf WHERE wf.entry_id = e.id AND ${wfExactCond.sql}
              )
              ${posClause}
            ORDER BY bm25(entries_fts) ASC, e.id ASC
            LIMIT ? OFFSET ?;`,
-          [ftsQuery, qLower, ...notPrefCond.params, qLower, ...posParams, s4.localLimit, s4.localOffset]
+          [ftsQuery, ...notExactCond.params, ...notPrefCond.params, ...wfExactCond.params, ...posParams, s4.localLimit, s4.localOffset]
         );
         for (const r of rows) {
           matchedItems.push({
@@ -779,34 +949,59 @@ export class EnglishSqliteRepository {
     const entryIds = entryRows.map((r) => r.id);
     const placeholders = entryIds.map(() => '?').join(',');
 
-    const sensesSql =
-      this.schemaVersion >= 2
-        ? `SELECT s.id, s.entry_id, s.sense_number, s.definition, ts.tags_json AS tags, s.examples, s.synonyms, s.antonyms
-           FROM senses s
-           LEFT JOIN tag_sets ts ON ts.id = s.tags_id
-           WHERE s.entry_id IN (${placeholders})
-           ORDER BY s.entry_id ASC, s.sense_number ASC;`
-        : `SELECT id, entry_id, sense_number, definition, tags, examples, synonyms, antonyms
-           FROM senses
-           WHERE entry_id IN (${placeholders})
-           ORDER BY entry_id ASC, sense_number ASC;`;
-
     const formsSql =
-      this.schemaVersion >= 2
-        ? `SELECT wf.entry_id, COALESCE(wf.form, wf.form_lower) AS form, wf.form_lower, ts.tags_json AS tags
+      this.schemaVersion >= 3 && this.isCoreLayer
+        ? `SELECT wf.entry_id, COALESCE(wf.form, wf.form_lower) AS form, wf.form_lower, NULL AS tags
            FROM word_forms wf
-           LEFT JOIN tag_sets ts ON ts.id = wf.tags_id
            WHERE wf.entry_id IN (${placeholders})
            ORDER BY wf.id ASC;`
-        : `SELECT entry_id, form, form_lower, tags
-           FROM word_forms
-           WHERE entry_id IN (${placeholders})
-           ORDER BY id ASC;`;
+        : this.schemaVersion >= 2
+          ? `SELECT wf.entry_id, COALESCE(wf.form, wf.form_lower) AS form, wf.form_lower, ts.tags_json AS tags
+             FROM word_forms wf
+             LEFT JOIN tag_sets ts ON ts.id = wf.tags_id
+             WHERE wf.entry_id IN (${placeholders})
+             ORDER BY wf.id ASC;`
+          : `SELECT entry_id, form, form_lower, tags
+             FROM word_forms
+             WHERE entry_id IN (${placeholders})
+             ORDER BY id ASC;`;
 
-    const [senseRows, formRows] = await Promise.all([
-      this.executor.query<SqlSenseRow>(sensesSql, entryIds),
-      this.executor.query<SqlWordFormRow>(formsSql, entryIds),
-    ]);
+    let senseRows: SqlSenseRow[] = [];
+    let formRows: SqlWordFormRow[] = [];
+
+    if (this.schemaVersion >= 3 && this.isCoreLayer && !this.extendedAttached) {
+      formRows = await this.executor.query<SqlWordFormRow>(formsSql, entryIds);
+    } else if (this.schemaVersion >= 3 && this.isCoreLayer && this.extendedAttached) {
+      const extSensesSql = `
+        SELECT s.id, s.entry_id, s.sense_number,
+               COALESCE(s.definition, e.primary_definition) AS definition,
+               ts.tags_json AS tags, s.examples, s.synonyms, s.antonyms
+        FROM ext.senses_ext s
+        JOIN entries e ON e.id = s.entry_id
+        LEFT JOIN ext.tag_sets ts ON ts.id = s.tags_id
+        WHERE s.entry_id IN (${placeholders})
+        ORDER BY s.entry_id ASC, s.sense_number ASC;`;
+      [senseRows, formRows] = await Promise.all([
+        this.executor.query<SqlSenseRow>(extSensesSql, entryIds),
+        this.executor.query<SqlWordFormRow>(formsSql, entryIds),
+      ]);
+    } else {
+      const sensesSql =
+        this.schemaVersion >= 2
+          ? `SELECT s.id, s.entry_id, s.sense_number, s.definition, ts.tags_json AS tags, s.examples, s.synonyms, s.antonyms
+             FROM senses s
+             LEFT JOIN tag_sets ts ON ts.id = s.tags_id
+             WHERE s.entry_id IN (${placeholders})
+             ORDER BY s.entry_id ASC, s.sense_number ASC;`
+          : `SELECT id, entry_id, sense_number, definition, tags, examples, synonyms, antonyms
+             FROM senses
+             WHERE entry_id IN (${placeholders})
+             ORDER BY entry_id ASC, sense_number ASC;`;
+      [senseRows, formRows] = await Promise.all([
+        this.executor.query<SqlSenseRow>(sensesSql, entryIds),
+        this.executor.query<SqlWordFormRow>(formsSql, entryIds),
+      ]);
+    }
 
     const sensesByEntryId = new Map<number, SqlSenseRow[]>();
     for (const s of senseRows) {
@@ -835,39 +1030,61 @@ export class EnglishSqliteRepository {
       const allExamples: ExampleSentence[] = [];
       const allTags = new Set<string>();
 
-      const mappedSenses: WordSense[] = rawSenses.map((s) => {
-        const sTags = safeJsonParse<string[]>(s.tags, []);
-        const mappedExamples = parseSenseExamples(s.examples);
-        const sSynonyms = safeJsonParse<string[]>(s.synonyms, []);
-        const sAntonyms = safeJsonParse<string[]>(s.antonyms, []);
+      let mappedSenses: WordSense[];
+      if (this.schemaVersion >= 3 && this.isCoreLayer && rawSenses.length === 0) {
+        const coreDef = row.primary_definition || '';
+        mappedSenses = coreDef
+          ? [
+              {
+                id: `${entryStringId}#s1`,
+                entryId: entryStringId,
+                senseNumber: 1,
+                partOfSpeech: row.part_of_speech,
+                definition: coreDef,
+                definitionEn: coreDef,
+                register: null,
+                examples: [],
+                synonyms: [],
+                antonyms: [],
+                relatedWords: [],
+              },
+            ]
+          : [];
+      } else {
+        mappedSenses = rawSenses.map((s) => {
+          const sTags = safeJsonParse<string[]>(s.tags, []);
+          const mappedExamples = parseSenseExamples(s.examples);
+          const sSynonyms = safeJsonParse<string[]>(s.synonyms, []);
+          const sAntonyms = safeJsonParse<string[]>(s.antonyms, []);
 
-        for (const t of sTags) allTags.add(t);
-        for (const syn of sSynonyms) {
-          if (syn) synonymsSet.add(syn);
-        }
-        for (const ant of sAntonyms) {
-          if (ant) antonymsSet.add(ant);
-        }
-        for (const ex of mappedExamples) {
-          if (allExamples.length < 8) {
-            allExamples.push(ex);
+          for (const t of sTags) allTags.add(t);
+          for (const syn of sSynonyms) {
+            if (syn) synonymsSet.add(syn);
           }
-        }
+          for (const ant of sAntonyms) {
+            if (ant) antonymsSet.add(ant);
+          }
+          for (const ex of mappedExamples) {
+            if (allExamples.length < 8) {
+              allExamples.push(ex);
+            }
+          }
 
-        return {
-          id: `${entryStringId}#s${s.sense_number}`,
-          entryId: entryStringId,
-          senseNumber: s.sense_number,
-          partOfSpeech: row.part_of_speech,
-          definition: s.definition,
-          definitionEn: s.definition,
-          register: sTags.length > 0 ? sTags.slice(0, 3).join(', ') : null,
-          examples: mappedExamples,
-          synonyms: sSynonyms,
-          antonyms: sAntonyms,
-          relatedWords: [],
-        };
-      });
+          return {
+            id: `${entryStringId}#s${s.sense_number}`,
+            entryId: entryStringId,
+            senseNumber: s.sense_number,
+            partOfSpeech: row.part_of_speech,
+            definition: s.definition,
+            definitionEn: s.definition,
+            register: sTags.length > 0 ? sTags.slice(0, 3).join(', ') : null,
+            examples: mappedExamples,
+            synonyms: sSynonyms,
+            antonyms: sAntonyms,
+            relatedWords: [],
+          };
+        });
+      }
 
       const mappedForms: MorphologicalForm[] = [];
       const seenFormKeys = new Set<string>();
@@ -882,7 +1099,8 @@ export class EnglishSqliteRepository {
         });
       }
 
-      const primaryDefinition = mappedSenses[0]?.definition || '';
+      const primaryDefinition = row.primary_definition || mappedSenses[0]?.definition || '';
+      const extraSensesCount = Number(row.extra_senses_count || Math.max(0, mappedSenses.length - 1));
       const entry: WordEntry = {
         id: entryStringId,
         sourceLang: 'en',
@@ -890,6 +1108,9 @@ export class EnglishSqliteRepository {
         ipa: row.primary_ipa || '',
         allIpas,
         isMonolingualSqlite: true,
+        isCoreOnly: this.isCoreLayer && !this.extendedAttached,
+        extraSensesCount,
+        extendedInstalled: !this.isCoreLayer || this.extendedAttached,
         partOfSpeech: row.part_of_speech,
         dialect: formatPrimaryDialect(allIpas, row.primary_ipa),
         etymology: row.etymology || null,

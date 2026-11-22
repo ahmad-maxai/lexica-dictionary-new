@@ -2,6 +2,7 @@ export interface EnglishPackManifest {
   packId: string;
   targetLanguage: 'en';
   format: 'sqlite-gzip';
+  packLayer?: 'core' | 'extended' | 'full';
   schemaVersion: number;
   packVersion: string;
   datasetVersion: string;
@@ -14,6 +15,21 @@ export interface EnglishPackManifest {
   acceptedEntries: number;
   distinctHeadwords: number;
   totalSenses: number;
+  corePrimarySenses?: number;
+  totalWordForms?: number;
+  extendedCompanion?: {
+    packId: string;
+    packLayer: 'extended';
+    schemaVersion: number;
+    packVersion: string;
+    optional: true;
+    autoDownload: false;
+    compressedSizeBytes: number;
+    compressedSha256: string;
+    uncompressedSizeBytes: number;
+    uncompressedSha256: string;
+    downloadUrl: string | null;
+  };
   attribution: {
     sourceName: string;
     license: string;
@@ -101,19 +117,35 @@ export const ENGLISH_PACK_MANIFEST: EnglishPackManifest = {
   packId: 'en-wiktionary-sqlite',
   targetLanguage: 'en',
   format: 'sqlite-gzip',
-  schemaVersion: 2,
-  packVersion: '0.3.0',
-  datasetVersion: '2026.11-wiktionary-en-v0.3.0',
-  releaseTag: 'prototype-en-v0.3.0',
+  packLayer: 'core',
+  schemaVersion: 3,
+  packVersion: '0.4.0-core',
+  datasetVersion: '2026.11-wiktionary-en-v0.4.0',
+  releaseTag: 'prototype-en-core-v0.4.0',
   downloadUrl:
-    'https://github.com/ahmad-maxai/lexica-dictionary-new/releases/download/prototype-en-v0.3.0/lexica_english.db.gz',
-  compressedSizeBytes: 47000179,
-  compressedSha256: 'f76103134a01d8e97b113771802b352f0ee96f90a38f20470f386378ecaa7c0e',
-  uncompressedSizeBytes: 110706688,
-  uncompressedSha256: '6cd13efbd0754ce272992fb79951d5d9389977fdcc610126229c754854fefdfd',
+    'https://github.com/ahmad-maxai/lexica-dictionary-new/releases/download/prototype-en-core-v0.4.0/lexica_english_core.db.gz',
+  compressedSizeBytes: 8602919,
+  compressedSha256: '5c80de4b38765186b8509bd129c8e6de79642e41b020c19a4304eb76e4892788',
+  uncompressedSizeBytes: 18546688,
+  uncompressedSha256: '8a66010602321ae1db7d03fe788d07e5e787e160959962bb0fc7fe66c1f20d44',
   acceptedEntries: 75000,
   distinctHeadwords: 45317,
   totalSenses: 190672,
+  corePrimarySenses: 75000,
+  totalWordForms: 134837,
+  extendedCompanion: {
+    packId: 'en-wiktionary-sqlite-extended',
+    packLayer: 'extended',
+    schemaVersion: 3,
+    packVersion: '0.4.0-extended',
+    optional: true,
+    autoDownload: false,
+    compressedSizeBytes: 37514633,
+    compressedSha256: 'aec1868f936d3b41074bd34f5ec2ae6ce278604f0f7ecf12be0d573466befbee',
+    uncompressedSizeBytes: 89636864,
+    uncompressedSha256: '8fd36bb6b606e03f05c99b279feb249d8a2de04a6710f3d7b09816269e92973f',
+    downloadUrl: null,
+  },
   attribution: {
     sourceName: 'English Wiktionary via Kaikki.org (Wiktextract)',
     license: 'CC BY-SA 4.0 & GFDL',

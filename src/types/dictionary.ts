@@ -126,6 +126,9 @@ export interface WordEntry {
   ipa: string;
   allIpas?: PronunciationVariant[];
   isMonolingualSqlite?: boolean;
+  isCoreOnly?: boolean;
+  extraSensesCount?: number;
+  extendedInstalled?: boolean;
   audioPhoneticText?: string | null;
   partOfSpeech: string;
   genderOrClass?: string | null; // e.g. "masculine", "feminine", "noun class"

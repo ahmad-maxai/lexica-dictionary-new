@@ -40,7 +40,39 @@ def detect_schema_version(conn: sqlite3.Connection) -> int:
     return 2 if has_pos_table else 1
 
 
+def has_table(conn: sqlite3.Connection, table_name: str) -> bool:
+    row = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?;",
+        (table_name,),
+    ).fetchone()
+    return bool(row and row[0] > 0)
+
+
 def fetch_entries_by_headword(conn: sqlite3.Connection, schema_ver: int, headword_lower: str) -> List[Dict[str, Any]]:
+    is_core_v3 = schema_ver >= 3 and not has_table(conn, "senses")
+    if is_core_v3:
+        rows = conn.execute(
+            """SELECT e.id, COALESCE(e.headword, e.headword_lower), p.name, e.primary_ipa,
+                      e.primary_definition, e.extra_senses_count
+               FROM entries e
+               JOIN parts_of_speech p ON p.id = e.pos_id
+               WHERE e.headword_lower = ? OR e.headword_norm = ?
+               ORDER BY CASE WHEN e.headword_lower = ? THEN 0 ELSE 1 END, e.id ASC;""",
+            (headword_lower, headword_lower, headword_lower),
+        ).fetchall()
+        return [
+            {
+                "id": eid,
+                "headword": hw,
+                "pos": pos,
+                "primary_ipa": pipa,
+                "all_ipas": [],
+                "senses": [{"sense_number": 1, "definition": pdef, "has_examples": False}],
+                "extra_senses_count": extra_cnt,
+            }
+            for eid, hw, pos, pipa, pdef, extra_cnt in rows
+        ]
+
     if schema_ver >= 2:
         rows = conn.execute(
             """SELECT e.id, COALESCE(e.headword, e.headword_lower), p.name, e.primary_ipa, pr.all_ipas
@@ -82,21 +114,26 @@ def run_comprehensive_verification(db_path: str) -> Dict[str, Any]:
     mem_before = get_process_memory_mb()
     conn = sqlite3.connect(f"file:{os.path.abspath(db_path)}?mode=ro", uri=True)
     schema_ver = detect_schema_version(conn)
+    is_core_v3 = schema_ver >= 3 and not has_table(conn, "senses")
 
     integrity = conn.execute("PRAGMA integrity_check;").fetchall()
     fk_check = conn.execute("PRAGMA foreign_key_check;").fetchall()
 
+    entries_cnt = conn.execute("SELECT COUNT(*) FROM entries;").fetchone()[0]
+    senses_cnt = entries_cnt if is_core_v3 else conn.execute("SELECT COUNT(*) FROM senses;").fetchone()[0]
+
     report: Dict[str, Any] = {
         "database_path": db_path,
         "schema_version": schema_ver,
+        "pack_layer": "core" if is_core_v3 else "full",
         "database_size_bytes": os.path.getsize(db_path),
         "database_size_mb": round(os.path.getsize(db_path) / (1024 * 1024), 2),
         "integrity_check": integrity == [("ok",)],
         "foreign_key_check": len(fk_check) == 0,
         "counts": {
-            "entries": conn.execute("SELECT COUNT(*) FROM entries;").fetchone()[0],
+            "entries": entries_cnt,
             "distinct_headwords": conn.execute("SELECT COUNT(DISTINCT headword_lower) FROM entries;").fetchone()[0],
-            "senses": conn.execute("SELECT COUNT(*) FROM senses;").fetchone()[0],
+            "senses": senses_cnt,
             "word_forms": conn.execute("SELECT COUNT(*) FROM word_forms;").fetchone()[0],
         },
         "target_word_tests": {},
