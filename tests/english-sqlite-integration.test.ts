@@ -35,23 +35,32 @@ const PY_SQLITE_QUERY = `
 import json, sqlite3, sys
 payload = json.load(sys.stdin)
 db_path = payload["dbPath"]
+attach_path = payload.get("attachPath")
 mode = payload.get("mode", "query")
+sql_text = payload.get("sql", "").strip()
+sql_upper = sql_text.upper()
 if payload.get("readOnly"):
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 else:
     conn = sqlite3.connect(db_path)
 conn.row_factory = sqlite3.Row
+if attach_path:
+    try:
+        conn.execute("ATTACH DATABASE ? AS ext;", (attach_path,))
+    except Exception:
+        pass
 try:
-    if mode == "exec":
-        conn.executescript(payload["sql"])
+    if mode == "exec" or sql_upper.startswith(("ATTACH", "DETACH")):
+        cur = conn.execute(sql_text, payload.get("params", []))
         conn.commit()
-        print(json.dumps({"ok": True}))
+        rows = [dict(r) for r in cur.fetchall()] if sql_upper.startswith("PRAGMA") else []
+        print(json.dumps({"rows": rows}))
     elif mode == "run":
-        cur = conn.execute(payload["sql"], payload.get("params", []))
+        cur = conn.execute(sql_text, payload.get("params", []))
         conn.commit()
         print(json.dumps({"lastInsertRowid": cur.lastrowid}))
     else:
-        cur = conn.execute(payload["sql"], payload.get("params", []))
+        cur = conn.execute(sql_text, payload.get("params", []))
         rows = [dict(r) for r in cur.fetchall()]
         print(json.dumps({"rows": rows}))
 finally:
@@ -67,22 +76,30 @@ function runPythonSqlite<T = unknown>(payload: Record<string, unknown>): T {
   return JSON.parse(out) as T;
 }
 
-function createCompatDb(dbPath: string, readOnly = false): NodeSqliteDatabase {
+function createCompatDb(dbPath: string, readOnly = false, attachPath?: string | null): NodeSqliteDatabase {
   if (NodeDatabaseSync) {
-    return new NodeDatabaseSync(dbPath, { readOnly });
+    const db = new NodeDatabaseSync(dbPath, { readOnly });
+    if (attachPath) {
+      try {
+        db.prepare('ATTACH DATABASE ? AS ext;').run(attachPath);
+      } catch {
+        // Ignore if already attached
+      }
+    }
+    return db;
   }
   return {
     exec(sql: string) {
-      runPythonSqlite({ dbPath, readOnly, mode: 'exec', sql });
+      runPythonSqlite({ dbPath, readOnly, attachPath, mode: 'exec', sql });
     },
     prepare(sql: string): NodeSqliteStatement {
       return {
         all(...params: unknown[]) {
-          const res = runPythonSqlite<{ rows: unknown[] }>({ dbPath, readOnly, mode: 'query', sql, params });
+          const res = runPythonSqlite<{ rows: unknown[] }>({ dbPath, readOnly, attachPath, mode: 'query', sql, params });
           return res.rows;
         },
         run(...params: unknown[]) {
-          const res = runPythonSqlite<{ lastInsertRowid: number }>({ dbPath, readOnly, mode: 'run', sql, params });
+          const res = runPythonSqlite<{ lastInsertRowid: number }>({ dbPath, readOnly, attachPath, mode: 'run', sql, params });
           return { lastInsertRowid: res.lastInsertRowid };
         },
       };
@@ -134,9 +151,19 @@ async function runAsyncTest(name: string, fn: () => Promise<void>): Promise<void
 class NodeSqliteExecutor implements SqlQueryExecutor {
   private db: NodeSqliteDatabase | null = null;
   private dbPath: string | null = null;
+  private attachPath: string | null = null;
 
   constructor(private readonly defaultPath: string) {
     this.dbPath = defaultPath;
+  }
+
+  public setAttachPath(p: string | null): void {
+    if (this.attachPath !== p) {
+      this.attachPath = p;
+      if (this.db) {
+        this.close();
+      }
+    }
   }
 
   public isOpen(): boolean {
@@ -150,7 +177,7 @@ class NodeSqliteExecutor implements SqlQueryExecutor {
   public async open(dbPath: string): Promise<void> {
     if (this.db && this.dbPath === dbPath) return;
     await this.close();
-    this.db = createCompatDb(dbPath, true);
+    this.db = createCompatDb(dbPath, true, this.attachPath);
     this.dbPath = dbPath;
   }
 
@@ -162,6 +189,9 @@ class NodeSqliteExecutor implements SqlQueryExecutor {
   }
 
   public async query<T = Record<string, unknown>>(statement: string, values: unknown[] = []): Promise<T[]> {
+    if (!this.db) {
+      await this.open(this.dbPath || '');
+    }
     if (!this.db) throw new Error('NodeSqliteExecutor database is not open.');
     const stmt = this.db.prepare(statement);
     const params = values.map((v) => {
@@ -169,6 +199,15 @@ class NodeSqliteExecutor implements SqlQueryExecutor {
       if (typeof v === 'boolean') return v ? 1 : 0;
       return v as string | number | bigint | Uint8Array | null;
     });
+    const trimmed = statement.trim().toUpperCase();
+    if (trimmed.startsWith('ATTACH') || trimmed.startsWith('DETACH')) {
+      if (typeof stmt.run === 'function') {
+        stmt.run(...params);
+      } else {
+        stmt.all(...params);
+      }
+      return [] as T[];
+    }
     return stmt.all(...params) as T[];
   }
 }

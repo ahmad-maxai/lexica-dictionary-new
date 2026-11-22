@@ -288,6 +288,9 @@ export class EnglishSqliteRepository {
 
   public setExtendedDbPathForTest(extendedPath: string | null): void {
     this.extendedDbPath = extendedPath;
+    if ('setAttachPath' in this.executor && typeof (this.executor as { setAttachPath: unknown }).setAttachPath === 'function') {
+      (this.executor as { setAttachPath: (p: string | null) => void }).setAttachPath(extendedPath);
+    }
   }
 
   public isPackActive(): boolean {
@@ -386,13 +389,34 @@ export class EnglishSqliteRepository {
       this.extendedAttached = false;
       if (this.isCoreLayer && detectedExtPath) {
         try {
-          await this.executor.query('ATTACH DATABASE ? AS ext;', [detectedExtPath]);
+          if ('setAttachPath' in this.executor && typeof (this.executor as { setAttachPath: unknown }).setAttachPath === 'function') {
+            (this.executor as { setAttachPath: (p: string | null) => void }).setAttachPath(detectedExtPath);
+          }
+          try {
+            await this.executor.query('ATTACH DATABASE ? AS ext;', [detectedExtPath]);
+          } catch (attachErr) {
+            if (!String(attachErr).includes('already in use')) {
+              throw attachErr;
+            }
+          }
           const extCheck = await this.executor.query<{ cnt: number }>(
             "SELECT COUNT(*) AS cnt FROM ext.sqlite_master WHERE type='table' AND name='senses_ext';"
           );
           this.extendedAttached = Number(extCheck[0]?.cnt || 0) > 0;
-        } catch {
+        } catch (err) {
           this.extendedAttached = false;
+          if ('setAttachPath' in this.executor && typeof (this.executor as { setAttachPath: unknown }).setAttachPath === 'function') {
+            (this.executor as { setAttachPath: (p: string | null) => void }).setAttachPath(null);
+          }
+        }
+      } else {
+        if ('setAttachPath' in this.executor && typeof (this.executor as { setAttachPath: unknown }).setAttachPath === 'function') {
+          (this.executor as { setAttachPath: (p: string | null) => void }).setAttachPath(null);
+        }
+        try {
+          await this.executor.query('DETACH DATABASE ext;');
+        } catch {
+          // Ignore if ext was not attached
         }
       }
 
