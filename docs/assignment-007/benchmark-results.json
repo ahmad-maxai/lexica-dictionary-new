@@ -1,0 +1,428 @@
+{
+  "environment": {
+    "platform": "linux",
+    "python_version": "3.11.2",
+    "sqlite_version": "3.40.1",
+    "benchmark_process_max_rss_mib": 907.68,
+    "note": "Measured on Linux x86_64 container (4 GiB RAM), NOT an Android 15 Go physical device."
+  },
+  "cold_start": {
+    "a0_v030": {
+      "median": {
+        "open_ms": 0.173,
+        "first_exact_ms": 0.908,
+        "total_cold_ms": 1.069
+      }
+    },
+    "a1_v3": {
+      "median": {
+        "open_ms": 0.195,
+        "first_exact_ms": 0.743,
+        "total_cold_ms": 0.986
+      }
+    },
+    "b_shards": {
+      "median": {
+        "open_ms": 0.07,
+        "first_exact_ms": 24.68,
+        "total_cold_ms": 24.75
+      }
+    },
+    "c_lxcbin": {
+      "median": {
+        "open_ms": 57.702,
+        "first_exact_ms": 0.148,
+        "total_cold_ms": 57.851
+      }
+    },
+    "d_core": {
+      "median": {
+        "open_ms": 0.201,
+        "first_exact_ms": 0.777,
+        "total_cold_ms": 0.971
+      }
+    },
+    "d_core_plus_ext": {
+      "median": {
+        "open_ms": 1.28,
+        "first_exact_ms": 0.323,
+        "total_cold_ms": 1.593
+      }
+    }
+  },
+  "warm_search": {
+    "a0_v030": {
+      "exact_50": {
+        "median_ms": 0.121,
+        "p95_ms": 0.248
+      },
+      "prefix_20": {
+        "median_ms": 0.077,
+        "p95_ms": 0.144
+      },
+      "def_20": {
+        "median_ms": 0.262,
+        "p95_ms": 1.2
+      },
+      "fetch_20": {
+        "median_ms": 0.532,
+        "p95_ms": 1.806
+      },
+      "query_tracemalloc_peak_kb": 130.32
+    },
+    "a1_v3": {
+      "exact_50": {
+        "median_ms": 0.076,
+        "p95_ms": 0.142
+      },
+      "prefix_20": {
+        "median_ms": 0.071,
+        "p95_ms": 0.108
+      },
+      "def_20": {
+        "median_ms": 0.146,
+        "p95_ms": 0.418
+      },
+      "fetch_20": {
+        "median_ms": 0.468,
+        "p95_ms": 5.998
+      },
+      "query_tracemalloc_peak_kb": 120.18
+    },
+    "b_shards": {
+      "exact_50": {
+        "median_ms": 1.023,
+        "p95_ms": 911.601
+      },
+      "prefix_20": {
+        "median_ms": 1.741,
+        "p95_ms": 3.926
+      },
+      "token_buckets_load_ms": 275.921,
+      "token_lookup_20": {
+        "median_ms": 0.002,
+        "p95_ms": 0.009
+      },
+      "query_tracemalloc_peak_kb": 367069.99
+    },
+    "c_lxcbin": {
+      "exact_50": {
+        "median_ms": 0.291,
+        "p95_ms": 0.561
+      },
+      "prefix_20": {
+        "median_ms": 0.593,
+        "p95_ms": 0.854
+      },
+      "def_20": {
+        "median_ms": 3.737,
+        "p95_ms": 11.391
+      },
+      "fetch_20": {
+        "median_ms": 0.423,
+        "p95_ms": 0.794
+      },
+      "directory_ram_kb": 762.35,
+      "query_tracemalloc_peak_kb": 836.38
+    },
+    "d_core": {
+      "exact_50": {
+        "median_ms": 0.068,
+        "p95_ms": 0.104
+      },
+      "prefix_20": {
+        "median_ms": 0.08,
+        "p95_ms": 0.118
+      },
+      "def_20": {
+        "median_ms": 0.168,
+        "p95_ms": 0.521
+      },
+      "fetch_20": {
+        "median_ms": 0.116,
+        "p95_ms": 0.194
+      },
+      "query_tracemalloc_peak_kb": 15.87
+    },
+    "d_core_plus_ext": {
+      "exact_50": {
+        "median_ms": 0.066,
+        "p95_ms": 0.111
+      },
+      "prefix_20": {
+        "median_ms": 0.072,
+        "p95_ms": 0.104
+      },
+      "def_20": {
+        "median_ms": 0.117,
+        "p95_ms": 0.38
+      },
+      "fetch_20": {
+        "median_ms": 0.503,
+        "p95_ms": 1.693
+      },
+      "query_tracemalloc_peak_kb": 139.24
+    }
+  },
+  "upgrade_and_recovery": {
+    "core_entries_before_upgrade": 75000,
+    "interrupted_download_error_detected": "EOFError: Compressed file ended before the end-of-stream marker was reached",
+    "interrupted_staging_cleaned": true,
+    "rollback_detection_ms": 248.64,
+    "core_integrity_after_failed_ext": "ok",
+    "clean_ext_upgrade_gzip_extract_plus_attach_ms": 869.29,
+    "upgraded_ext_extra_senses_rows": 115672
+  },
+  "integrity_verification": {
+    "canonical_counts": {
+      "entries": 75000,
+      "senses": 190672,
+      "word_forms": 134837
+    },
+    "architectures": {
+      "a1_v3": {
+        "sqlite_integrity_check": "ok",
+        "foreign_key_violations": 0,
+        "counts": {
+          "entries": 75000,
+          "senses": 190672,
+          "word_forms": 134837
+        },
+        "parity_100pct": true
+      },
+      "b_shards": {
+        "counts": {
+          "entries": 75000,
+          "senses": 190672,
+          "word_forms": 134837
+        },
+        "parity_100pct": true
+      },
+      "c_lxcbin": {
+        "header_entries": 75000,
+        "core_test_words_resolved": true,
+        "entries_match": true
+      },
+      "d_core_only": {
+        "sqlite_integrity_check": "ok",
+        "foreign_key_violations": 0,
+        "entries": 75000,
+        "word_forms": 134837,
+        "core_scope_parity_100pct": true
+      },
+      "d_core_plus_extended": {
+        "ext_sqlite_integrity_check": "ok",
+        "ext_foreign_key_violations": 0,
+        "total_senses": 190672,
+        "parity_100pct": true
+      }
+    }
+  },
+  "prototype_builds": {
+    "source_db": "/tmp/lexica_english_v030.db",
+    "source_bytes": 110706688,
+    "arch_a1": {
+      "name": "Architecture A1: Optimized SQLite v3 (inline + detail=none FTS5)",
+      "path": "/tmp/lexica_a007/arch_a1_sqlite_v3.db",
+      "bytes": 107626496,
+      "build_seconds": 5.984
+    },
+    "arch_b": {
+      "name": "Architecture B: Initial-Letter JSON / JSONL Shards (27 shards)",
+      "root": "/tmp/lexica_a007/arch_b_shards",
+      "shard_count": 27,
+      "jsonl_shards_bytes": 106172403,
+      "compact_json_shards_bytes": 106172430,
+      "form_indexes_bytes": 2873629,
+      "token_buckets_index_bytes": 2198722,
+      "total_jsonl_with_indexes_bytes": 111244754,
+      "total_compact_with_indexes_bytes": 111244781,
+      "max_shard_entries": 7509,
+      "min_shard_entries": 128,
+      "build_seconds": 17.731
+    },
+    "arch_c": {
+      "name": "Architecture C: Compact Binary (.lxcbin front-coded + string pools + varint postings)",
+      "path": "/tmp/lexica_a007/arch_c_compact.lxcbin",
+      "bytes": 91263167,
+      "section_bytes": {
+        "header": 88,
+        "string_pools": 14346633,
+        "entry_offsets": 300000,
+        "entries_blob": 72483208,
+        "headword_dir": 24654,
+        "headword_blocks": 518044,
+        "wordform_dir": 25542,
+        "wordform_blocks": 969475,
+        "inverted_idx_dir": 20693,
+        "inverted_idx_blocks": 2574830
+      },
+      "build_seconds": 13.533
+    },
+    "arch_d": {
+      "name": "Architecture D: Layered Core + Extended SQLite Packs",
+      "core_path": "/tmp/lexica_a007/arch_d_core.db",
+      "core_bytes": 18235392,
+      "extended_path": "/tmp/lexica_a007/arch_d_extended.db",
+      "extended_bytes": 89604096,
+      "combined_bytes": 107839488,
+      "build_seconds": 11.273
+    }
+  },
+  "compression": {
+    "a0_v020": {
+      "label": "A0 Baseline SQLite v1 (v0.2.0)",
+      "uncompressed_bytes": 165916672,
+      "uncompressed_mib": 158.23,
+      "gzip_6_bytes": 58418392,
+      "gzip_6_mib": 55.71,
+      "gzip_compress_s": 9.874,
+      "gzip_extract_s": 1.293,
+      "gzip_extract_peak_kb": 253.17,
+      "zstd_bytes": 55342012,
+      "zstd_mib": 52.78,
+      "zstd_compress_s": 1.585,
+      "zstd_extract_s": 0.648,
+      "brotli_q5_bytes": 48445206,
+      "brotli_q5_mib": 46.2,
+      "brotli_compress_s": 8.539,
+      "brotli_extract_s": 0.989,
+      "lzma_p1_bytes": null,
+      "lzma_p1_mib": null,
+      "lzma_compress_s": null,
+      "lzma_extract_s": null
+    },
+    "a0_v030": {
+      "label": "A0 Optimized SQLite v2 (v0.3.0)",
+      "uncompressed_bytes": 110706688,
+      "uncompressed_mib": 105.58,
+      "gzip_6_bytes": 47138727,
+      "gzip_6_mib": 44.95,
+      "gzip_compress_s": 8.023,
+      "gzip_extract_s": 0.858,
+      "gzip_extract_peak_kb": 260.1,
+      "zstd_bytes": 44632428,
+      "zstd_mib": 42.56,
+      "zstd_compress_s": 1.283,
+      "zstd_extract_s": 0.455,
+      "brotli_q5_bytes": 39547445,
+      "brotli_q5_mib": 37.72,
+      "brotli_compress_s": 6.716,
+      "brotli_extract_s": 0.703,
+      "lzma_p1_bytes": null,
+      "lzma_p1_mib": null,
+      "lzma_compress_s": null,
+      "lzma_extract_s": null
+    },
+    "a1_v3": {
+      "label": "A1 Optimized SQLite v3",
+      "uncompressed_bytes": 107626496,
+      "uncompressed_mib": 102.64,
+      "gzip_6_bytes": 46483518,
+      "gzip_6_mib": 44.33,
+      "gzip_compress_s": 7.392,
+      "gzip_extract_s": 0.887,
+      "gzip_extract_peak_kb": 261.27,
+      "zstd_bytes": 43957398,
+      "zstd_mib": 41.92,
+      "zstd_compress_s": 1.396,
+      "zstd_extract_s": 0.476,
+      "brotli_q5_bytes": 39041825,
+      "brotli_q5_mib": 37.23,
+      "brotli_compress_s": 6.946,
+      "brotli_extract_s": 0.762,
+      "lzma_p1_bytes": null,
+      "lzma_p1_mib": null,
+      "lzma_compress_s": null,
+      "lzma_extract_s": null
+    },
+    "b_jsonl_tar": {
+      "label": "B JSONL Shards + Indexes (tar)",
+      "uncompressed_bytes": 111349760,
+      "uncompressed_mib": 106.19,
+      "gzip_6_bytes": 38026171,
+      "gzip_6_mib": 36.26,
+      "gzip_compress_s": 6.553,
+      "gzip_extract_s": 0.791,
+      "gzip_extract_peak_kb": 242.75,
+      "zstd_bytes": 35518114,
+      "zstd_mib": 33.87,
+      "zstd_compress_s": 1.251,
+      "zstd_extract_s": 0.493,
+      "brotli_q5_bytes": 30725905,
+      "brotli_q5_mib": 29.3,
+      "brotli_compress_s": 6.324,
+      "brotli_extract_s": 0.767,
+      "lzma_p1_bytes": null,
+      "lzma_p1_mib": null,
+      "lzma_compress_s": null,
+      "lzma_extract_s": null
+    },
+    "c_lxcbin": {
+      "label": "C Compact Binary (.lxcbin)",
+      "uncompressed_bytes": 91263167,
+      "uncompressed_mib": 87.04,
+      "gzip_6_bytes": 39374420,
+      "gzip_6_mib": 37.55,
+      "gzip_compress_s": 6.445,
+      "gzip_extract_s": 0.761,
+      "gzip_extract_peak_kb": 233.96,
+      "zstd_bytes": 36926689,
+      "zstd_mib": 35.22,
+      "zstd_compress_s": 1.068,
+      "zstd_extract_s": 0.404,
+      "brotli_q5_bytes": 32441861,
+      "brotli_q5_mib": 30.94,
+      "brotli_compress_s": 5.668,
+      "brotli_extract_s": 0.646,
+      "lzma_p1_bytes": null,
+      "lzma_p1_mib": null,
+      "lzma_compress_s": null,
+      "lzma_extract_s": null
+    },
+    "d_core": {
+      "label": "D Layered Core SQLite",
+      "uncompressed_bytes": 18235392,
+      "uncompressed_mib": 17.39,
+      "gzip_6_bytes": 8554030,
+      "gzip_6_mib": 8.16,
+      "gzip_compress_s": 1.196,
+      "gzip_extract_s": 0.148,
+      "gzip_extract_peak_kb": 256.14,
+      "zstd_bytes": 8509053,
+      "zstd_mib": 8.11,
+      "zstd_compress_s": 0.301,
+      "zstd_extract_s": 0.119,
+      "brotli_q5_bytes": 7640897,
+      "brotli_q5_mib": 7.29,
+      "brotli_compress_s": 1.748,
+      "brotli_extract_s": 0.151,
+      "lzma_p1_bytes": 7074548,
+      "lzma_p1_mib": 6.75,
+      "lzma_compress_s": 3.185,
+      "lzma_extract_s": 0.652
+    },
+    "d_extended": {
+      "label": "D Layered Extended SQLite",
+      "uncompressed_bytes": 89604096,
+      "uncompressed_mib": 85.45,
+      "gzip_6_bytes": 37579932,
+      "gzip_6_mib": 35.84,
+      "gzip_compress_s": 6.4,
+      "gzip_extract_s": 0.766,
+      "gzip_extract_peak_kb": 258.11,
+      "zstd_bytes": 34979162,
+      "zstd_mib": 33.36,
+      "zstd_compress_s": 1.125,
+      "zstd_extract_s": 0.407,
+      "brotli_q5_bytes": 30778641,
+      "brotli_q5_mib": 29.35,
+      "brotli_compress_s": 6.009,
+      "brotli_extract_s": 0.575,
+      "lzma_p1_bytes": null,
+      "lzma_p1_mib": null,
+      "lzma_compress_s": null,
+      "lzma_extract_s": null
+    }
+  }
+}
