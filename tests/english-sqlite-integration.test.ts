@@ -50,7 +50,11 @@ if attach_path:
     except Exception:
         pass
 try:
-    if mode == "exec" or sql_upper.startswith(("ATTACH", "DETACH")):
+    if mode == "exec":
+        conn.executescript(sql_text)
+        conn.commit()
+        print(json.dumps({"ok": True}))
+    elif sql_upper.startswith(("ATTACH", "DETACH")):
         cur = conn.execute(sql_text, payload.get("params", []))
         conn.commit()
         rows = [dict(r) for r in cur.fetchall()] if sql_upper.startswith("PRAGMA") else []
