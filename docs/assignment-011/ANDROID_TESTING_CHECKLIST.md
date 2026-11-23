@@ -22,8 +22,9 @@ This checklist separates **CI / Automated Host Verification (executed)** from **
   - `H.6` End-to-end verification against full built `/tmp/hausa_core_v050/lexica_hausa_core.db` (**10,201** entries, `0` placeholders, `0` machine-generated entries, `5,581` word forms, `352` conflicts).
 - [x] **Hausa Lexicography Quality Audit (`tests/hausa-lexicography-audit.test.ts`):** `7 / 7` passed (Assignment 009 preservation check + Schema v4 DB quality audit).
 
-### CI Android Build (`.github/workflows/build-android-apk.yml`)
-- [x] Triggered via GitHub Actions `workflow_dispatch` on `feature/assignment-011-hausa-core-integration` (compile Java Capacitor plugin `EnglishPackInstallerPlugin.java`, Capacitor sync & Gradle Debug APK build, artifact upload).
+### CI Android Build & Release (`.github/workflows/build-android-apk.yml`)
+- [ ] Upload built `lexica_hausa_core.db.gz`, `lexica_hausa_extended.db.gz`, and `hausa_pack_manifest.json` from `/tmp/hausa_core_v050/` to GitHub Release `prototype-ha-core-v0.5.0`.
+- [ ] Trigger `.github/workflows/build-android-apk.yml` via GitHub Actions `workflow_dispatch` on `feature/assignment-011-hausa-core-integration` and confirm `lexica-multilingual-dictionary-debug-apk` artifact upload.
 
 ---
 
