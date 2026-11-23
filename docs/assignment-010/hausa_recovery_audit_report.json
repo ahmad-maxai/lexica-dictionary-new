@@ -1,0 +1,49 @@
+{
+  "packId": "ha-lexica-recovery-proto",
+  "datasetVersion": "2026.11-ha-recovery-proto-v0.5.0",
+  "status": "isolated-prototype-not-in-production",
+  "quickCheck": "ok",
+  "totalEntries": 10201,
+  "distinctHeadwords": 9893,
+  "totalSenses": 15010,
+  "wordFormsPreserved": 5501,
+  "entriesWithHausaMonolingualExplanation": 8736,
+  "hausaMonolingualCoveragePercent": 85.64,
+  "definitionTypeBreakdown": {
+    "hausa_monolingual": 6180,
+    "bilingual_explanation": 2556,
+    "english_gloss": 1465,
+    "machine_generated": 0,
+    "unavailable": 0
+  },
+  "verificationStatusBreakdown": {
+    "community_reviewed": 9809,
+    "human_verified": 71,
+    "conflict_flagged": 321
+  },
+  "sourceContributionPrimaryBreakdown": {
+    "lexica-curated": 71,
+    "hawiktionary": 8715,
+    "kaikki-en-wikt": 1030,
+    "wikidata-q56475": 385
+  },
+  "entriesWithExamples": 6699,
+  "entriesWithIpa": 2261,
+  "entriesWithAjamiScriptVariant": 1316,
+  "entriesFlaggedWithSourceConflict": 352,
+  "coreDbUncompressedBytes": 3661824,
+  "coreDbCompressedBytes": 1200005,
+  "extDbUncompressedBytes": 2936832,
+  "extDbCompressedBytes": 953230,
+  "coreSha256": "0463724c41f0e7112f009c7fbc07d925396d4668f2dcebf53686e8efbc336a4e",
+  "coreGzSha256": "979d939dc9bbc1e4a9d27b500a77d5d62472dc922632f541d7e34ad5cfd50f10",
+  "benchmarksMs": {
+    "exactHeadwordMs": 0.0293,
+    "normalizedHookedMs": 0.0267,
+    "prefixLookupMs": 0.0319,
+    "ftsDefinitionMs": 0.0582
+  },
+  "buildRuntimeSeconds": 7.26,
+  "peakBuilderRssKiB": 75692,
+  "timestamp": "2026-11-23 10:45:16 UTC"
+}

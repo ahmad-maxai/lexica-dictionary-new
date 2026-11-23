@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx tests/dictionary-search.test.ts && tsx tests/english-sqlite-integration.test.ts && tsx tests/hausa-sqlite-integration.test.ts",
+    "test": "tsx tests/dictionary-search.test.ts && tsx tests/english-sqlite-integration.test.ts && tsx tests/hausa-sqlite-integration.test.ts && tsx tests/hausa-lexicography-audit.test.ts",
     "cap:sync": "cap sync android",
     "cap:build": "vite build && cap sync android"
   },
