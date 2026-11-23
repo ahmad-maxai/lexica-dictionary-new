@@ -98,23 +98,52 @@ public class EnglishPackInstallerPlugin extends Plugin {
         return "ha".equalsIgnoreCase(lang) || (packId != null && packId.startsWith("ha-"));
     }
 
+    private boolean isExtendedLayer(PluginCall call) {
+        if (call == null) return false;
+        String layer = call.getString("packLayer", "core");
+        return "extended".equalsIgnoreCase(layer);
+    }
+
+    private String getPackDisplayLabel(PluginCall call) {
+        return isHausa(call) ? "Hausa" : "English";
+    }
+
     private File getActiveDb(File dir, PluginCall call) {
         return new File(dir, isHausa(call) ? "lexica_hausaSQLite.db" : ACTIVE_DB_NAME);
     }
 
+    private File getTargetDb(File dir, PluginCall call) {
+        if (isExtendedLayer(call)) {
+            return getExtendedDb(dir, call);
+        }
+        return getActiveDb(dir, call);
+    }
+
     private File getTmpDb(File dir, PluginCall call) {
+        if (isExtendedLayer(call)) {
+            return new File(dir, isHausa(call) ? "lexica_hausa_extended.db.tmp" : "lexica_english_extended.db.tmp");
+        }
         return new File(dir, isHausa(call) ? "lexica_hausaSQLite.db.tmp" : TMP_DB_NAME);
     }
 
     private File getBakDb(File dir, PluginCall call) {
+        if (isExtendedLayer(call)) {
+            return new File(dir, isHausa(call) ? "lexica_hausa_extended.db.bak" : "lexica_english_extended.db.bak");
+        }
         return new File(dir, isHausa(call) ? "lexica_hausaSQLite.db.bak" : BACKUP_DB_NAME);
     }
 
     private File getPartGz(File dir, PluginCall call) {
+        if (isExtendedLayer(call)) {
+            return new File(dir, isHausa(call) ? "lexica_hausa_extended.db.gz.part" : "lexica_english_extended.db.gz.part");
+        }
         return new File(dir, isHausa(call) ? "lexica_hausa.db.gz.part" : PART_GZ_NAME);
     }
 
     private File getMetaFile(File dir, PluginCall call) {
+        if (isExtendedLayer(call)) {
+            return new File(dir, isHausa(call) ? "lexica_hausa_extended.db.gz.meta.json" : "lexica_english_extended.db.gz.meta.json");
+        }
         return new File(dir, isHausa(call) ? "lexica_hausa.db.gz.meta.json" : META_FILE_NAME);
     }
 
@@ -210,7 +239,10 @@ public class EnglishPackInstallerPlugin extends Plugin {
 
         executor.execute(() -> {
             File dir = getPacksDir();
-            File activeDb = getActiveDb(dir, call);
+            boolean extendedLayer = isExtendedLayer(call);
+            String label = getPackDisplayLabel(call);
+            File coreDb = getActiveDb(dir, call);
+            File targetDb = getTargetDb(dir, call);
             File tmpDb = getTmpDb(dir, call);
             File bakDb = getBakDb(dir, call);
             File partGz = getPartGz(dir, call);
@@ -219,20 +251,27 @@ public class EnglishPackInstallerPlugin extends Plugin {
             try {
                 // Step 0: Duplicate-version download guard — reuse verified local DB without network I/O
                 if (!forceReinstall
-                        && activeDb.exists()
-                        && activeDb.length() == uncompressedSizeBytes
+                        && targetDb.exists()
+                        && targetDb.length() == uncompressedSizeBytes
                         && !expectedPackVersion.isEmpty()) {
                     try {
-                        JSObject existingSummary = validateStagingDatabase(activeDb);
+                        JSObject existingSummary = extendedLayer
+                            ? validateExtendedDatabase(targetDb)
+                            : validateStagingDatabase(targetDb);
                         String installedVersion = existingSummary.optString("pack_version", "");
-                        int installedEntries = existingSummary.optInt("accepted_entries", 0);
-                        if (expectedPackVersion.equals(installedVersion) && installedEntries > 0) {
+                        boolean hasContent = extendedLayer
+                            ? existingSummary.optInt("total_senses", 0) > 0 || existingSummary.optInt("schema_version", 0) >= 3
+                            : existingSummary.optInt("accepted_entries", 0) > 0;
+                        if (expectedPackVersion.equals(installedVersion) && hasContent) {
                             JSObject result = new JSObject();
-                            result.put("installed", true);
+                            JSObject coreSummary = extendedLayer && coreDb.exists()
+                                ? readDbSummary(coreDb)
+                                : existingSummary;
+                            result.put("installed", coreDb.exists() && coreDb.length() > 0);
                             result.put("alreadyInstalled", true);
-                            result.put("dbPath", activeDb.getAbsolutePath());
-                            result.put("dbSizeBytes", activeDb.length());
-                            populateLayerSummary(result, existingSummary, dir);
+                            result.put("dbPath", coreDb.getAbsolutePath());
+                            result.put("dbSizeBytes", coreDb.exists() ? coreDb.length() : 0L);
+                            populateLayerSummary(result, coreSummary, dir);
                             call.resolve(result);
                             return;
                         }
@@ -316,7 +355,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 emitProgress("verifying_integrity", uncompressedSizeBytes, uncompressedSizeBytes, "Running SQLite integrity checks...");
                 JSObject dbSummary;
                 try {
-                    dbSummary = validateStagingDatabase(tmpDb);
+                    dbSummary = extendedLayer ? validateExtendedDatabase(tmpDb) : validateStagingDatabase(tmpDb);
                 } catch (Exception integrityErr) {
                     deleteIfExists(tmpDb);
                     deleteIfExists(partGz);
@@ -324,20 +363,26 @@ public class EnglishPackInstallerPlugin extends Plugin {
                     throw integrityErr;
                 }
 
-                // Step 7: Atomic swap preserving activeDb until tmpDb replaces it cleanly
-                emitProgress("activating", uncompressedSizeBytes, uncompressedSizeBytes, "Activating offline English dictionary...");
-                atomicReplaceDatabase(tmpDb, activeDb, bakDb);
+                // Step 7: Atomic swap preserving active DB until tmpDb replaces it cleanly
+                emitProgress(
+                    "activating",
+                    uncompressedSizeBytes,
+                    uncompressedSizeBytes,
+                    "Activating offline " + label + (extendedLayer ? " Extended" : "") + " dictionary..."
+                );
+                atomicReplaceDatabase(tmpDb, targetDb, bakDb);
 
                 // Clean up temporary/compressed staging files after confirmed activation
                 deleteIfExists(partGz);
                 deleteIfExists(metaFile);
 
                 JSObject result = new JSObject();
-                result.put("installed", true);
+                JSObject coreSummary = extendedLayer && coreDb.exists() ? readDbSummary(coreDb) : dbSummary;
+                result.put("installed", coreDb.exists() && coreDb.length() > 0);
                 result.put("alreadyInstalled", false);
-                result.put("dbPath", activeDb.getAbsolutePath());
-                result.put("dbSizeBytes", activeDb.length());
-                populateLayerSummary(result, dbSummary, dir);
+                result.put("dbPath", coreDb.getAbsolutePath());
+                result.put("dbSizeBytes", coreDb.exists() ? coreDb.length() : 0L);
+                populateLayerSummary(result, coreSummary, dir);
                 call.resolve(result);
             } catch (CancelledException ce) {
                 call.reject("Download paused. Partial file kept for safe resume.", "DOWNLOAD_CANCELLED");
@@ -367,13 +412,20 @@ public class EnglishPackInstallerPlugin extends Plugin {
         executor.execute(() -> {
             try {
                 File dir = getPacksDir();
-                File activeDb = getActiveDb(dir, call);
-                deleteIfExists(activeDb);
-                deleteIfExists(getTmpDb(dir, call));
-                deleteIfExists(getBakDb(dir, call));
-                deleteIfExists(getPartGz(dir, call));
-                deleteIfExists(getMetaFile(dir, call));
-                deleteIfExists(getExtendedDb(dir, call));
+                if (isExtendedLayer(call)) {
+                    deleteIfExists(getExtendedDb(dir, call));
+                    deleteIfExists(getTmpDb(dir, call));
+                    deleteIfExists(getBakDb(dir, call));
+                    deleteIfExists(getPartGz(dir, call));
+                    deleteIfExists(getMetaFile(dir, call));
+                } else {
+                    deleteIfExists(getActiveDb(dir, call));
+                    deleteIfExists(getTmpDb(dir, call));
+                    deleteIfExists(getBakDb(dir, call));
+                    deleteIfExists(getPartGz(dir, call));
+                    deleteIfExists(getMetaFile(dir, call));
+                    deleteIfExists(getExtendedDb(dir, call));
+                }
                 JSObject res = new JSObject();
                 res.put("removed", true);
                 res.put("availableBytes", getAvailableStorageBytes(dir));
@@ -389,15 +441,24 @@ public class EnglishPackInstallerPlugin extends Plugin {
         executor.execute(() -> {
             try {
                 File dir = getPacksDir();
-                File activeDb = getActiveDb(dir, call);
-                if (!activeDb.exists()) {
+                boolean extendedLayer = isExtendedLayer(call);
+                File coreDb = getActiveDb(dir, call);
+                File targetDb = getTargetDb(dir, call);
+                if (!targetDb.exists()) {
                     call.reject("Dictionary pack database is not installed.", "NOT_INSTALLED");
                     return;
                 }
-                JSObject summary = validateStagingDatabase(activeDb);
-                summary.put("dbPath", activeDb.getAbsolutePath());
-                summary.put("dbSizeBytes", activeDb.length());
-                populateLayerSummary(summary, summary, dir);
+                JSObject targetSummary = extendedLayer
+                    ? validateExtendedDatabase(targetDb)
+                    : validateStagingDatabase(targetDb);
+                JSObject coreSummary = extendedLayer && coreDb.exists()
+                    ? readDbSummary(coreDb)
+                    : targetSummary;
+                JSObject summary = new JSObject();
+                summary.put("installed", coreDb.exists() && coreDb.length() > 0);
+                summary.put("dbPath", coreDb.getAbsolutePath());
+                summary.put("dbSizeBytes", coreDb.exists() ? coreDb.length() : 0L);
+                populateLayerSummary(summary, coreSummary, dir);
                 call.resolve(summary);
             } catch (Exception e) {
                 call.reject("INTEGRITY_CHECK_FAILED: " + e.getMessage(), "SQLITE_INTEGRITY_FAILED", e);
@@ -1193,6 +1254,36 @@ public class EnglishPackInstallerPlugin extends Plugin {
                     if (!defCur.moveToFirst() || defCur.getInt(0) <= 0) {
                         throw new IOException("Core English dictionary entries lack primary definitions");
                     }
+                }
+            }
+            return readDbSummaryFromOpenDb(db);
+        } finally {
+            if (db != null) {
+                db.close();
+            }
+        }
+    }
+
+    private JSObject validateExtendedDatabase(File dbFile) throws Exception {
+        SQLiteDatabase db = null;
+        try {
+            db = SQLiteDatabase.openDatabase(dbFile.getAbsolutePath(), null, SQLiteDatabase.OPEN_READONLY);
+            try (Cursor qc = db.rawQuery("PRAGMA quick_check;", null)) {
+                if (!qc.moveToFirst() || !"ok".equalsIgnoreCase(qc.getString(0))) {
+                    throw new IOException("Extended DB PRAGMA quick_check failed");
+                }
+            }
+            try (Cursor tables = db.rawQuery(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('metadata','senses_ext','entry_extensions');",
+                null
+            )) {
+                if (!tables.moveToFirst() || tables.getInt(0) < 3) {
+                    throw new IOException("Missing required Extended dictionary schema tables");
+                }
+            }
+            try (Cursor countCur = db.rawQuery("SELECT COUNT(*) FROM senses_ext;", null)) {
+                if (!countCur.moveToFirst() || countCur.getInt(0) <= 0) {
+                    throw new IOException("Extended dictionary senses_ext table is empty");
                 }
             }
             return readDbSummaryFromOpenDb(db);

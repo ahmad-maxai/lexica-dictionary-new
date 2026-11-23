@@ -207,16 +207,24 @@ async function main() {
     assert.strictEqual(conflict.preservedSources.length, 2);
   });
 
-  await runTest('A10.6 Production Assignment 009 manifest stays intact & reversible', () => {
-    assert.strictEqual(HAUSA_PACK_MANIFEST.packVersion, '0.4.0-core');
-    assert.strictEqual(HAUSA_PACK_MANIFEST.acceptedEntries, 2260);
+  await runTest('A10.6 Assignment 009 pack builder remains intact & Schema v4 integration is reversible', () => {
+    assert.strictEqual(fs.existsSync('scripts/build_hausa_core_pack.py'), true);
+    const a09Builder = fs.readFileSync('scripts/build_hausa_core_pack.py', 'utf8');
+    assert(a09Builder.includes('0.4.0-core'), 'Assignment 009 script must preserve 0.4.0-core builder');
+    assert.strictEqual(HAUSA_PACK_MANIFEST.packVersion, '0.5.0-core');
+    assert.strictEqual(HAUSA_PACK_MANIFEST.schemaVersion, 4);
+    assert.strictEqual(HAUSA_PACK_MANIFEST.acceptedEntries, 10201);
     assert.strictEqual(HAUSA_PACK_MANIFEST.targetLanguage, 'ha');
   });
 
-  const protoCore = '/tmp/hausa_recovery_v050/lexica_hausa_recovery_core.db';
-  const protoExt = '/tmp/hausa_recovery_v050/lexica_hausa_recovery_extended.db';
+  const protoCore = fs.existsSync('/tmp/hausa_core_v050/lexica_hausa_core.db')
+    ? '/tmp/hausa_core_v050/lexica_hausa_core.db'
+    : '/tmp/hausa_recovery_v050/lexica_hausa_recovery_core.db';
+  const protoExt = fs.existsSync('/tmp/hausa_core_v050/lexica_hausa_extended.db')
+    ? '/tmp/hausa_core_v050/lexica_hausa_extended.db'
+    : '/tmp/hausa_recovery_v050/lexica_hausa_recovery_extended.db';
   if (fs.existsSync(protoCore)) {
-    await runTest('A10.7 Isolated Assignment 010 Recovery Prototype SQLite DB quality & schema verification', () => {
+    await runTest('A10.7 Hausa Schema v4 Recovery SQLite DB quality & schema verification', () => {
       const qc = querySqlite(protoCore, 'PRAGMA quick_check;');
       assert.strictEqual(Object.values(qc[0])[0], 'ok');
 
@@ -224,25 +232,25 @@ async function main() {
         protoCore,
         "SELECT COUNT(*) AS cnt FROM entries WHERE lower(trim(primary_definition)) IN ('hausa lexical entry.', 'hausa entry.', 'kalmar tana nufin', '');"
       );
-      assert.strictEqual(Number(placeholders[0].cnt), 0, 'Prototype must have zero generic placeholders');
+      assert.strictEqual(Number(placeholders[0].cnt), 0, 'Database must have zero generic placeholders');
 
       const refLeaks = querySqlite(
         protoCore,
         "SELECT COUNT(*) AS cnt FROM entries WHERE primary_definition LIKE '%<ref%' OR primary_definition LIKE '%{{%';"
       );
-      assert.strictEqual(Number(refLeaks[0].cnt), 0, 'Prototype must strip raw <ref> and template markup');
+      assert.strictEqual(Number(refLeaks[0].cnt), 0, 'Database must strip raw <ref> and template markup');
 
       const haMono = querySqlite(
         protoCore,
         "SELECT COUNT(*) AS cnt FROM entries WHERE definition_type IN ('hausa_monolingual', 'bilingual_explanation');"
       );
-      assert(Number(haMono[0].cnt) >= 7000, `Expected >= 7,000 Hausa monolingual entries, got ${haMono[0].cnt}`);
+      assert(Number(haMono[0].cnt) >= 8500, `Expected >= 8,500 Hausa explanations, got ${haMono[0].cnt}`);
 
       const ajami = querySqlite(
         protoCore,
         'SELECT COUNT(*) AS cnt FROM entries WHERE script_variant IS NOT NULL;'
       );
-      assert(Number(ajami[0].cnt) >= 900, `Expected >= 900 Ajami script variants, got ${ajami[0].cnt}`);
+      assert(Number(ajami[0].cnt) >= 1300, `Expected >= 1,300 Ajami script variants, got ${ajami[0].cnt}`);
 
       if (fs.existsSync(protoExt)) {
         const extCount = querySqlite(

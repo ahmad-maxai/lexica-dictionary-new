@@ -3,6 +3,8 @@ import { LanguageCode } from '../types/dictionary';
 import { LANGUAGE_LIST } from '../data/languages';
 import { getUiCopy, getLangName } from '../i18n';
 import { ENGLISH_PACK_MANIFEST } from '../config/englishDictionaryConfig';
+import { HAUSA_PACK_MANIFEST } from '../config/hausaDictionaryConfig';
+import { HausaAttributionAndReviewModal } from './HausaAttributionAndReviewModal';
 import {
   X,
   Globe2,
@@ -10,6 +12,7 @@ import {
   Sun,
   Check,
   RotateCcw,
+  Scale,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -39,6 +42,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onTogglePhonetics,
   onResetOnboarding,
 }) => {
+  const [showHausaModal, setShowHausaModal] = React.useState(false);
+
   if (!isOpen) return null;
 
   const copy = getUiCopy(interfaceLang);
@@ -202,17 +207,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Offline English Dictionary Attribution */}
-          <div className="pt-4 border-t border-slate-200/60 dark:border-slate-800/60 space-y-1">
+          {/* Offline Dictionary Attribution */}
+          <div className="pt-4 border-t border-slate-200/60 dark:border-slate-800/60 space-y-2.5">
             <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Data Sources &amp; Attribution
             </div>
-            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              {ENGLISH_PACK_MANIFEST.attribution.attributionText}
-            </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              License: {ENGLISH_PACK_MANIFEST.attribution.license} · English Pack v{ENGLISH_PACK_MANIFEST.packVersion}
-            </p>
+            <div className="space-y-1">
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                {ENGLISH_PACK_MANIFEST.attribution.attributionText}
+              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                License: {ENGLISH_PACK_MANIFEST.attribution.license} · English Pack v{ENGLISH_PACK_MANIFEST.packVersion}
+              </p>
+            </div>
+            <div className="pt-2 border-t border-slate-200/40 dark:border-slate-800/40 space-y-1.5">
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                {HAUSA_PACK_MANIFEST.attribution.attributionText}
+              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Hausa Pack v{HAUSA_PACK_MANIFEST.packVersion} ({HAUSA_PACK_MANIFEST.acceptedEntries.toLocaleString()} entries)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowHausaModal(true)}
+                  className="text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Scale className="w-3.5 h-3.5" />
+                  <span>Inspect Hausa Licenses &amp; QA Queue</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Reset Onboarding Walkthrough */}
@@ -228,6 +253,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </div>
       </div>
+
+      <HausaAttributionAndReviewModal
+        isOpen={showHausaModal}
+        onClose={() => setShowHausaModal(false)}
+        initialTab="sources"
+      />
     </div>
   );
 };

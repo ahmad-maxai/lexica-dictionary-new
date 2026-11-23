@@ -4,6 +4,11 @@ import { LANGUAGES } from '../data/languages';
 import { dictionaryDb } from '../services/dictionaryDatabase';
 import { audioService } from '../services/audioService';
 import {
+  hausaConflictReviewService,
+  type ConflictReviewDecision,
+  type ConflictReviewerStatus,
+} from '../services/hausaConflictReviewService';
+import {
   getUiCopy,
   formatText,
   getLangName,
@@ -21,6 +26,10 @@ import {
   Sparkles,
   Copy,
   Layers,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
 } from 'lucide-react';
 
 interface WordDetailModalProps {
@@ -48,6 +57,27 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 }) => {
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isConflictPanelOpen, setIsConflictPanelOpen] = useState(false);
+
+  const initialConflictReview = word ? hausaConflictReviewService.getReviewForEntry(word) : null;
+  const [reviewDecision, setReviewDecision] = useState<ConflictReviewDecision>(
+    initialConflictReview?.reviewDecision || 'pending'
+  );
+  const [reviewerStatus, setReviewerStatus] = useState<ConflictReviewerStatus>(
+    initialConflictReview?.reviewerStatus || 'conflict_flagged'
+  );
+  const [reviewNotes, setReviewNotes] = useState(initialConflictReview?.reviewNotes || '');
+  const [reviewSavedMsg, setReviewSavedMsg] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!word) return;
+    const rev = hausaConflictReviewService.getReviewForEntry(word);
+    setReviewDecision(rev?.reviewDecision || 'pending');
+    setReviewerStatus(rev?.reviewerStatus || 'conflict_flagged');
+    setReviewNotes(rev?.reviewNotes || '');
+    setReviewSavedMsg(null);
+    setIsConflictPanelOpen(false);
+  }, [word?.id]);
 
   if (!word) return null;
 
@@ -73,8 +103,44 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
 
   const handlePlayAudio = async () => {
     setIsPlayingAudio(true);
+    const verifiedAudioUrl = word.audioRefs?.[0]?.mp3Url || word.audioRefs?.[0]?.oggUrl || null;
+    if (verifiedAudioUrl && typeof Audio !== 'undefined' && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const audio = new Audio(verifiedAudioUrl);
+          audio.onended = () => resolve();
+          audio.onerror = () => reject(new Error('Audio playback failed'));
+          const playPromise = audio.play();
+          if (playPromise && typeof playPromise.catch === 'function') {
+            playPromise.catch(reject);
+          }
+        });
+        setIsPlayingAudio(false);
+        return;
+      } catch {
+        // Fallback cleanly to local WebAudio / SpeechSynthesis
+      }
+    }
     await audioService.speak(word.headword, word.sourceLang, word.tonePattern);
     setIsPlayingAudio(false);
+  };
+
+  const handleSaveConflictDecision = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!word) return;
+    hausaConflictReviewService.saveReviewDecision({
+      entryId: word.id,
+      headword: word.headword,
+      partOfSpeech: word.partOfSpeech,
+      conflictingVersions: word.conflictDetails?.versions || [],
+      disagreementNature:
+        word.conflictDetails?.disagreementNature ||
+        'Cross-source Hausa explanations preserved separately pending review.',
+      reviewDecision,
+      reviewerStatus,
+      reviewNotes,
+    });
+    setReviewSavedMsg('Review decision saved.');
   };
 
   const handleCopyCitation = () => {
@@ -239,45 +305,80 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
               </div>
             )}
 
+            {/* Verified Wikimedia Audio Attribution (if present) */}
+            {word.audioRefs && word.audioRefs.length > 0 && (
+              <div className="mt-2 text-[11px] text-[#345E4C] dark:text-[#7E9E88] flex flex-wrap items-center gap-2">
+                <span>
+                  Verified audio: {word.audioRefs[0].file} ({word.audioRefs[0].license || 'Wikimedia Commons'})
+                </span>
+              </div>
+            )}
+
+            {/* Honest English-Gloss-Only Notice for Hausa */}
+            {word.sourceLang === 'ha' && word.isMonolingualSqlite && word.definitionType === 'english_gloss' && (
+              <div className="mt-3 p-2.5 rounded-xl bg-amber-50/90 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/40 text-[11px] text-amber-900 dark:text-amber-200">
+                English translation only — a verified human-authored Hausa-to-Hausa explanation is not yet available in open-licensed sources.
+              </div>
+            )}
+
             {/* Numbered Word Senses & Usage Notes */}
             <div className="mt-4 space-y-3">
               {senses.length > 0 ? (
-                senses.map((sense) => (
-                  <div
-                    key={sense.id}
-                    className={
-                      senses.length > 1
-                        ? 'ps-3 border-s-2 border-[#204031]/25 dark:border-[#7E9E88]/30 space-y-1'
-                        : 'space-y-1'
-                    }
-                  >
-                    <div className="text-sm sm:text-base leading-relaxed text-slate-800 dark:text-slate-200">
-                      {senses.length > 1 && (
-                        <span className="font-bold text-[#204031] dark:text-[#7E9E88] me-1.5">
-                          {sense.senseNumber}.
-                        </span>
+                senses.map((sense) => {
+                  const hasSplitHaEn =
+                    word.sourceLang === 'ha' &&
+                    word.isMonolingualSqlite &&
+                    Boolean(sense.definitionHa);
+                  return (
+                    <div
+                      key={sense.id}
+                      className={
+                        senses.length > 1
+                          ? 'ps-3 border-s-2 border-[#204031]/25 dark:border-[#7E9E88]/30 space-y-1'
+                          : 'space-y-1'
+                      }
+                    >
+                      <div className="text-sm sm:text-base leading-relaxed text-slate-800 dark:text-slate-200">
+                        {senses.length > 1 && (
+                          <span className="font-bold text-[#204031] dark:text-[#7E9E88] me-1.5">
+                            {sense.senseNumber}.
+                          </span>
+                        )}
+                        {senses.length > 1 && sense.partOfSpeech && sense.partOfSpeech !== word.partOfSpeech && (
+                          <span className="italic text-xs text-slate-500 me-1.5">
+                            ({getLocalizedPos(sense.partOfSpeech, interfaceLang)})
+                          </span>
+                        )}
+                        <span>{hasSplitHaEn ? sense.definitionHa : sense.definition}</span>
+                      </div>
+
+                      {hasSplitHaEn && sense.definitionEn && (
+                        <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">
+                          <span className="font-semibold text-slate-700 dark:text-slate-300 me-1">English:</span>
+                          {sense.definitionEn}
+                        </p>
                       )}
-                      {senses.length > 1 && sense.partOfSpeech !== word.partOfSpeech && (
-                        <span className="italic text-xs text-slate-500 me-1.5">
-                          ({getLocalizedPos(sense.partOfSpeech, interfaceLang)})
-                        </span>
+
+                      {sense.sourceName && senses.length > 1 && (
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                          Source: {sense.sourceName} ({sense.sourceLicense || 'CC BY-SA 4.0'})
+                        </p>
                       )}
-                      <span>{sense.definition}</span>
+
+                      {sense.register && (
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 italic">
+                          {sense.register}
+                        </p>
+                      )}
+
+                      {sense.usageNote && (
+                        <p className="text-xs text-[#C47248] dark:text-[#E28D70] leading-relaxed">
+                          {copy.wordDetail.usagePrefix} {sense.usageNote}
+                        </p>
+                      )}
                     </div>
-
-                    {sense.register && (
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 italic">
-                        {sense.register}
-                      </p>
-                    )}
-
-                    {sense.usageNote && (
-                      <p className="text-xs text-[#C47248] dark:text-[#E28D70] leading-relaxed">
-                        {copy.wordDetail.usagePrefix} {sense.usageNote}
-                      </p>
-                    )}
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="text-sm sm:text-base leading-relaxed text-slate-800 dark:text-slate-200">
                   {word.definition || copy.wordDetail.noDefinitionDataset}
@@ -597,13 +698,136 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
             </div>
           )}
 
+          {/* Collapsible Conflict Review QA Workflow (for multi-source Hausa disagreements) */}
+          {word.hasConflict && word.conflictDetails && (
+            <div className="rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setIsConflictPanelOpen((v) => !v)}
+                className="w-full px-4 py-3 flex items-center justify-between gap-2 text-xs font-semibold text-amber-900 dark:text-amber-200 cursor-pointer"
+              >
+                <span className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-[#C47248] shrink-0" />
+                  <span>
+                    Cross-source disagreement flagged ({word.conflictDetails.versions.length} source versions preserved)
+                  </span>
+                </span>
+                <span className="flex items-center gap-1 text-[11px] shrink-0">
+                  <span>{reviewerStatus}</span>
+                  {isConflictPanelOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </span>
+              </button>
+
+              {isConflictPanelOpen && (
+                <div className="px-4 pb-4 pt-1 space-y-3 border-t border-amber-200/60 dark:border-amber-900/40 text-xs">
+                  <p className="text-[11px] text-amber-900/80 dark:text-amber-200/80">
+                    {word.conflictDetails.disagreementNature}
+                  </p>
+
+                  <div className="space-y-2">
+                    {word.conflictDetails.versions.map((ver, idx) => (
+                      <div
+                        key={`${ver.sourceCode}-${idx}`}
+                        className="p-2.5 rounded-xl bg-white dark:bg-[#162720] border border-amber-200/60 dark:border-slate-800 space-y-1"
+                      >
+                        <div className="flex items-center justify-between text-[10px] font-semibold text-[#345E4C] dark:text-[#7E9E88]">
+                          <span>{ver.sourceName}</span>
+                          <span>{ver.license}</span>
+                        </div>
+                        {ver.definitionHa && (
+                          <p className="text-xs text-slate-800 dark:text-slate-200">
+                            <span className="font-semibold">HA:</span> {ver.definitionHa}
+                          </p>
+                        )}
+                        {ver.definitionEn && (
+                          <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                            <span className="font-semibold">EN:</span> {ver.definitionEn}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <form onSubmit={handleSaveConflictDecision} className="space-y-2 pt-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <select
+                        value={reviewDecision}
+                        onChange={(e) => setReviewDecision(e.target.value as ConflictReviewDecision)}
+                        className="h-9 px-2 rounded-lg bg-white dark:bg-[#162720] border border-slate-200 dark:border-slate-700 text-xs"
+                      >
+                        <option value="pending">Pending review</option>
+                        <option value="keep_both">Keep both explanations</option>
+                        <option value="prefer_source">Prefer primary source</option>
+                        <option value="merged_verified">Human-verified merge</option>
+                        <option value="needs_native_edit">Needs native rewrite</option>
+                      </select>
+
+                      <select
+                        value={reviewerStatus}
+                        onChange={(e) => setReviewerStatus(e.target.value as ConflictReviewerStatus)}
+                        className="h-9 px-2 rounded-lg bg-white dark:bg-[#162720] border border-slate-200 dark:border-slate-700 text-xs"
+                      >
+                        <option value="conflict_flagged">conflict_flagged</option>
+                        <option value="in_review">in_review</option>
+                        <option value="approved_human_verified">approved_human_verified</option>
+                        <option value="deferred">deferred</option>
+                      </select>
+                    </div>
+
+                    <textarea
+                      rows={2}
+                      value={reviewNotes}
+                      onChange={(e) => setReviewNotes(e.target.value)}
+                      placeholder="Optional reviewer note (saved locally without altering source text)..."
+                      className="w-full p-2 rounded-lg bg-white dark:bg-[#162720] border border-slate-200 dark:border-slate-700 text-xs"
+                    />
+
+                    <div className="flex items-center justify-between gap-2">
+                      <button
+                        type="submit"
+                        className="px-3 py-1.5 rounded-lg bg-[#1B382B] text-white text-[11px] font-semibold cursor-pointer"
+                      >
+                        Record Review Decision
+                      </button>
+                      {reviewSavedMsg && (
+                        <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                          {reviewSavedMsg}
+                        </span>
+                      )}
+                    </div>
+                  </form>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Source & Dataset Attribution Footer */}
           <div className="text-[11px] text-slate-400 dark:text-slate-500 pt-2 border-t border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center justify-between gap-2">
-            <span>
-              {copy.wordDetail.sourcePrefix} {word.sourceAttribution || 'Lexica Starter Corpus'}
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span>
+                {copy.wordDetail.sourcePrefix} {word.sourceAttribution || 'Lexica Starter Corpus'}
+              </span>
+              {word.sourceVerificationStatus && (
+                <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono text-slate-600 dark:text-slate-300">
+                  {word.sourceVerificationStatus}
+                </span>
+              )}
             </span>
-            <span dir="ltr">
-              {word.license || 'CC BY-SA 4.0'} · v{word.datasetVersion || '2026.4.0'}
+            <span dir="ltr" className="flex items-center gap-2">
+              {word.licenseUrl ? (
+                <a
+                  href={word.licenseUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hover:underline inline-flex items-center gap-1 text-[#345E4C] dark:text-[#7E9E88]"
+                >
+                  <span>{word.license || 'CC BY-SA 4.0'}</span>
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              ) : (
+                <span>{word.license || 'CC BY-SA 4.0'}</span>
+              )}
+              <span>· v{word.datasetVersion || '2026.4.0'}</span>
             </span>
           </div>
         </div>

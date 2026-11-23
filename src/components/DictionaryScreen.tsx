@@ -76,6 +76,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
   );
   const [asyncEnglishResponse, setAsyncEnglishResponse] = useState<StandardSearchResponse | null>(null);
   const [englishAvailableLetters, setEnglishAvailableLetters] = useState<string[] | null>(null);
+  const [hausaAvailableLetters, setHausaAvailableLetters] = useState<string[] | null>(null);
   const [isEnglishLoading, setIsEnglishLoading] = useState(false);
   const [isLoadingMoreEnglish, setIsLoadingMoreEnglish] = useState(false);
   const [englishRetryTick, setEnglishRetryTick] = useState(0);
@@ -197,6 +198,25 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
 
   const useHausaSqlitePath =
     dictionaryMode === 'standard' && sourceLang === 'ha' && isHausaSqliteIntegrationEnabled();
+
+  useEffect(() => {
+    if (!useHausaSqlitePath || !hausaSqliteRepo.isPackActive()) {
+      setHausaAvailableLetters(null);
+      return;
+    }
+    let cancelled = false;
+    hausaSqliteRepo
+      .getAvailableLetters()
+      .then((letters) => {
+        if (!cancelled && letters.length > 0) setHausaAvailableLetters(letters);
+      })
+      .catch(() => {
+        if (!cancelled) setHausaAvailableLetters(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [useHausaSqlitePath, hausaPackStatus.installed]);
 
   useEffect(() => {
     if (!useHausaSqlitePath) {
@@ -321,6 +341,9 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
     if (useEnglishSqlitePath && englishAvailableLetters && englishAvailableLetters.length > 0) {
       return englishAvailableLetters;
     }
+    if (useHausaSqlitePath && hausaAvailableLetters && hausaAvailableLetters.length > 0) {
+      return hausaAvailableLetters;
+    }
     const entries = dictionaryDb.getEntriesByLanguage(sourceLang);
     const letters = new Set<string>();
     for (const e of entries) {
@@ -331,7 +354,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
       }
     }
     return Array.from(letters).sort((a, b) => a.localeCompare(b));
-  }, [sourceLang, useEnglishSqlitePath, englishAvailableLetters]);
+  }, [sourceLang, useEnglishSqlitePath, englishAvailableLetters, useHausaSqlitePath, hausaAvailableLetters]);
 
   const syncStandardResponse: StandardSearchResponse | null = useMemo(() => {
     if (dictionaryMode !== 'standard') return null;
@@ -638,7 +661,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
             {dictionaryMode === 'standard' &&
               (standardResponse?.engineSource === 'sqlite-en' || standardResponse?.engineSource === 'sqlite-ha') && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#EEF4F0] dark:bg-[#1F372C] text-[#204031] dark:text-[#7E9E88]">
-                Wiktionary
+                {standardResponse.engineSource === 'sqlite-ha' ? 'Open Lexicon · SQLite' : 'Wiktionary'}
               </span>
             )}
             <span>
@@ -722,6 +745,16 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                             {copy.search.synonymShortLabel} {matchedTerm}
                           </span>
                         )}
+                        {entry.sourceLang === 'ha' && entry.definitionType === 'english_gloss' && (
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300">
+                            English gloss only
+                          </span>
+                        )}
+                        {entry.sourceLang === 'ha' && entry.hasConflict && (
+                          <span className="text-[10px] font-medium text-[#C47248] dark:text-[#E28D70]">
+                            · Review flagged
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-baseline gap-2.5">
@@ -743,20 +776,38 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                         )}
                       </div>
 
-                      <div className="mt-2 space-y-1">
-                        {senses.slice(0, 2).map((sense) => (
-                          <p
-                            key={sense.id}
-                            className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed"
-                          >
-                            {senses.length > 1 && (
-                              <span className="font-semibold text-[#345E4C] dark:text-[#7E9E88] me-1.5">
-                                {sense.senseNumber}.
-                              </span>
-                            )}
-                            {sense.definition}
-                          </p>
-                        ))}
+                      <div className="mt-2 space-y-1.5">
+                        {senses.slice(0, 2).map((sense) => {
+                          const hasSplitHaEn =
+                            entry.sourceLang === 'ha' &&
+                            entry.isMonolingualSqlite &&
+                            Boolean(sense.definitionHa);
+                          return (
+                            <div key={sense.id} className="space-y-0.5">
+                              <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                                {senses.length > 1 && (
+                                  <span className="font-semibold text-[#345E4C] dark:text-[#7E9E88] me-1.5">
+                                    {sense.senseNumber}.
+                                  </span>
+                                )}
+                                {hasSplitHaEn ? sense.definitionHa : sense.definition}
+                              </p>
+                              {hasSplitHaEn && sense.definitionEn && (
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                  <span className="font-semibold text-slate-600 dark:text-slate-300 me-1">EN:</span>
+                                  {sense.definitionEn}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {entry.sourceLang === 'ha' &&
+                          entry.isMonolingualSqlite &&
+                          entry.definitionType === 'english_gloss' && (
+                            <p className="text-[11px] italic text-slate-500 dark:text-slate-400">
+                              English translation only — verified Hausa explanation unavailable.
+                            </p>
+                          )}
                       </div>
                     </div>
 

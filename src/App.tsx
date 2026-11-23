@@ -4,6 +4,8 @@ import { StorageService } from './services/storageService';
 import { dictionaryDb } from './services/dictionaryDatabase';
 import { englishPackService } from './services/englishPackService';
 import { englishSqliteRepo } from './services/englishSqliteRepository';
+import { hausaPackService } from './services/hausaPackService';
+import { hausaSqliteRepo } from './services/hausaSqliteRepository';
 import { OnboardingScreen } from './components/OnboardingScreen';
 import { Navigation, NavigationTab } from './components/Navigation';
 import { HomeScreen } from './components/HomeScreen';
@@ -23,26 +25,46 @@ export default function App() {
   const [collections, setCollections] = useState<Collection[]>(() => StorageService.getCollections());
   const [savedSqliteEntries, setSavedSqliteEntries] = useState<WordEntry[]>([]);
   const [englishPackVersionTick, setEnglishPackVersionTick] = useState(0);
+  const [hausaPackVersionTick, setHausaPackVersionTick] = useState(0);
 
   useEffect(() => {
-    const unsub = englishPackService.subscribeStatus(() => {
+    const unsubEn = englishPackService.subscribeStatus(() => {
       setEnglishPackVersionTick((t) => t + 1);
     });
+    const unsubHa = hausaPackService.subscribeStatus(() => {
+      setHausaPackVersionTick((t) => t + 1);
+    });
     void englishPackService.refreshStatus();
-    return unsub;
+    void hausaPackService.refreshStatus();
+    return () => {
+      unsubEn();
+      unsubHa();
+    };
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    const sqliteIds = preferences.savedWordIds.filter((id) => id.startsWith('en-sqlite-'));
-    if (sqliteIds.length === 0 || !englishSqliteRepo.isPackActive()) {
+    const enIds = preferences.savedWordIds.filter((id) => id.startsWith('en-sqlite-'));
+    const haIds = preferences.savedWordIds.filter((id) => /^ha-\d+$/.test(id));
+    const promises: Promise<WordEntry[]>[] = [];
+
+    if (enIds.length > 0 && englishSqliteRepo.isPackActive()) {
+      promises.push(englishSqliteRepo.getEntriesByIds(enIds).catch(() => []));
+    }
+    if (haIds.length > 0 && hausaSqliteRepo.isPackActive()) {
+      promises.push(hausaSqliteRepo.getEntriesByIds(haIds).catch(() => []));
+    }
+
+    if (promises.length === 0) {
       setSavedSqliteEntries([]);
       return;
     }
-    englishSqliteRepo
-      .getEntriesByIds(sqliteIds)
-      .then((entries) => {
-        if (!cancelled) setSavedSqliteEntries(entries);
+
+    Promise.all(promises)
+      .then((groups) => {
+        if (!cancelled) {
+          setSavedSqliteEntries(groups.flat());
+        }
       })
       .catch(() => {
         if (!cancelled) setSavedSqliteEntries([]);
@@ -50,7 +72,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [preferences.savedWordIds, englishPackVersionTick]);
+  }, [preferences.savedWordIds, englishPackVersionTick, hausaPackVersionTick]);
 
   // Synchronize dark mode class, theme color, document language & RTL/LTR direction
   useEffect(() => {
@@ -288,6 +310,12 @@ export default function App() {
             if (id.startsWith('en-sqlite-')) {
               void englishSqliteRepo.getEntryById(id).then((found) => {
                 if (found) setSelectedWord(found);
+              });
+              return;
+            }
+            if (/^ha-\d+$/.test(id)) {
+              void hausaSqliteRepo.getEntriesByIds([id]).then((found) => {
+                if (found[0]) setSelectedWord(found[0]);
               });
               return;
             }

@@ -67,7 +67,18 @@ export interface WordSense {
   senseNumber: number;
   partOfSpeech: string;
   definition: string;
-  definitionEn?: string;
+  definitionHa?: string | null;
+  definitionEn?: string | null;
+  definitionType?:
+    | 'hausa_monolingual'
+    | 'english_gloss'
+    | 'bilingual_explanation'
+    | 'machine_generated'
+    | 'unavailable';
+  sourceName?: string;
+  sourceLicense?: string;
+  sourceUrl?: string;
+  verificationStatus?: string;
   register?: string | null;
   usageNote?: string | null;
   examples: ExampleSentence[];
@@ -115,6 +126,23 @@ export interface PronunciationVariant {
   tags: string[];
 }
 
+export interface VerifiedAudioRef {
+  file: string;
+  oggUrl?: string | null;
+  mp3Url?: string | null;
+  license?: string;
+}
+
+export interface ConflictSourceVersion {
+  sourceCode: string;
+  sourceName: string;
+  license: string;
+  definitionHa?: string | null;
+  definitionEn?: string | null;
+  definitionType: string;
+  verificationStatus: string;
+}
+
 export interface WordEntry {
   id: string;
   sourceLang: LanguageCode;
@@ -125,6 +153,7 @@ export interface WordEntry {
   } | null;
   ipa: string;
   allIpas?: PronunciationVariant[];
+  audioRefs?: VerifiedAudioRef[];
   isMonolingualSqlite?: boolean;
   isCoreOnly?: boolean;
   extraSensesCount?: number;
@@ -138,7 +167,14 @@ export interface WordEntry {
   rootWord?: string | null; // e.g., Arabic tri-consonantal root
   tonePattern?: string | null; // Yoruba, Hausa, Chinese tones
   definition: string;
+  definitionHa?: string | null;
   definitionEn: string;
+  definitionType?:
+    | 'hausa_monolingual'
+    | 'english_gloss'
+    | 'bilingual_explanation'
+    | 'machine_generated'
+    | 'unavailable';
   culturalNote?: string | null;
   /** Structured sense list (populated in shared database layer) */
   senses?: WordSense[];
@@ -151,8 +187,21 @@ export interface WordEntry {
   antonyms: string[];
   verifiedOffline: boolean;
   verificationStatus?: 'verified' | 'provisional' | 'review_required';
+  sourceVerificationStatus?:
+    | 'human_verified'
+    | 'community_reviewed'
+    | 'unverified_import'
+    | 'conflict_flagged'
+    | 'rejected';
+  hasConflict?: boolean;
+  conflictDetails?: {
+    disagreementNature: string;
+    versions: ConflictSourceVersion[];
+  } | null;
   sourceAttribution?: string | null;
+  sourceUrl?: string | null;
   license?: string | null;
+  licenseUrl?: string | null;
   datasetVersion?: string | null;
   tags: string[];
 }

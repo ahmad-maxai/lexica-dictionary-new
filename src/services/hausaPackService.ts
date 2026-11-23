@@ -4,7 +4,7 @@ import {
   validateHausaPackManifest,
   type HausaPackManifest,
 } from '../config/hausaDictionaryConfig';
-import { type PackInstallProgress, type DeviceMemoryMetrics, type PackInstallStage } from './englishPackService';
+import { type PackInstallProgress, type DeviceMemoryMetrics } from './englishPackService';
 
 export interface HausaPackStatus {
   installed: boolean;
@@ -34,6 +34,7 @@ export interface HausaPackInstallerNative {
   installPack(options: {
     lang?: string;
     packId?: string;
+    packLayer?: 'core' | 'extended';
     packVersion?: string;
     forceReinstall?: boolean;
     url: string;
@@ -43,8 +44,16 @@ export interface HausaPackInstallerNative {
     uncompressedSizeBytes: number;
   }): Promise<Partial<HausaPackStatus>>;
   cancelInstall(options?: { lang?: string; packId?: string }): Promise<{ cancelled: boolean }>;
-  removePack(options?: { lang?: string; packId?: string }): Promise<{ removed: boolean; availableBytes: number }>;
-  verifyInstalledPack(options?: { lang?: string; packId?: string }): Promise<Partial<HausaPackStatus>>;
+  removePack(options?: {
+    lang?: string;
+    packId?: string;
+    packLayer?: 'core' | 'extended';
+  }): Promise<{ removed: boolean; availableBytes: number }>;
+  verifyInstalledPack(options?: {
+    lang?: string;
+    packId?: string;
+    packLayer?: 'core' | 'extended';
+  }): Promise<Partial<HausaPackStatus>>;
   getMemoryMetrics(): Promise<DeviceMemoryMetrics>;
   addListener(
     eventName: 'packInstallProgress',
@@ -72,6 +81,7 @@ class HausaPackService {
   private statusListeners = new Set<(status: HausaPackStatus) => void>();
   private progressListeners = new Set<(progress: PackInstallProgress) => void>();
   private nativeListenerHandle: PluginListenerHandle | null = null;
+  private beforeMutateDbHook: (() => Promise<void>) | null = null;
   private mockInstaller: HausaPackInstallerNative | null = null;
   private statusLoaded = false;
   private statusLoadingPromise: Promise<HausaPackStatus> | null = null;
@@ -123,6 +133,10 @@ class HausaPackService {
 
   public isNativeAndroid(): boolean {
     return this.detectPlatform() === 'android';
+  }
+
+  public setBeforeMutateDbHook(hook: (() => Promise<void>) | null): void {
+    this.beforeMutateDbHook = hook;
   }
 
   public _injectMockInstaller(mock: HausaPackInstallerNative | null): void {
@@ -213,7 +227,7 @@ class HausaPackService {
   }
 
   private async initNativeListener(): Promise<void> {
-    if (!this.isNativeAndroid() && !this.mockInstaller) return;
+    if ((!this.isNativeAndroid() && !this.mockInstaller) || this.nativeListenerHandle) return;
     try {
       this.nativeListenerHandle = await this.getNativePlugin().addListener(
         'packInstallProgress',
@@ -338,6 +352,11 @@ class HausaPackService {
       }
     }
 
+    await this.initNativeListener();
+    if (this.beforeMutateDbHook) {
+      await this.beforeMutateDbHook();
+    }
+
     this.currentStatus = { ...this.currentStatus, inProgress: true, error: null };
     this.notifyStatus(this.getCachedStatus());
 
@@ -345,6 +364,7 @@ class HausaPackService {
       const nativeRes = await this.getNativePlugin().installPack({
         lang: 'ha',
         packId: manifest.packId,
+        packLayer: 'core',
         packVersion: manifest.packVersion,
         forceReinstall: Boolean(options.forceReinstall),
         url: manifest.downloadUrl,
@@ -361,6 +381,7 @@ class HausaPackService {
         inProgress: false,
         error: null,
       };
+      this.statusLoaded = true;
       this.persistStatus();
       this.notifyStatus(this.getCachedStatus());
       return this.getCachedStatus();
@@ -373,6 +394,117 @@ class HausaPackService {
       };
       this.notifyStatus(this.getCachedStatus());
       throw new HausaPackInstallError('INSTALL_FAILED', msg);
+    }
+  }
+
+  public async installExtendedPack(options: { forceReinstall?: boolean } = {}): Promise<HausaPackStatus> {
+    const ext = HAUSA_PACK_MANIFEST.extendedCompanion;
+    if (!ext || !ext.downloadUrl) {
+      throw new HausaPackInstallError('INVALID_MANIFEST', 'Hausa Extended pack manifest or download URL is unavailable.');
+    }
+    const current = this.statusLoaded ? this.getCachedStatus() : await this.ensureStatusLoaded();
+    if (!current.installed) {
+      throw new HausaPackInstallError('CORE_REQUIRED', 'Install Hausa Core offline pack before installing Extended enrichment.');
+    }
+    if (!options.forceReinstall && current.extendedInstalled && current.extendedDbSizeBytes === ext.uncompressedSizeBytes) {
+      return {
+        ...current,
+        alreadyInstalled: true,
+      };
+    }
+
+    await this.initNativeListener();
+    if (this.beforeMutateDbHook) {
+      await this.beforeMutateDbHook();
+    }
+
+    this.currentStatus = { ...this.currentStatus, inProgress: true, error: null };
+    this.notifyStatus(this.getCachedStatus());
+
+    try {
+      const nativeRes = await this.getNativePlugin().installPack({
+        lang: 'ha',
+        packId: ext.packId,
+        packLayer: 'extended',
+        packVersion: ext.packVersion,
+        forceReinstall: Boolean(options.forceReinstall),
+        url: ext.downloadUrl,
+        compressedSha256: ext.compressedSha256,
+        uncompressedSha256: ext.uncompressedSha256,
+        compressedSizeBytes: ext.compressedSizeBytes,
+        uncompressedSizeBytes: ext.uncompressedSizeBytes,
+      });
+
+      this.currentStatus = {
+        ...this.currentStatus,
+        ...nativeRes,
+        installed: nativeRes.installed ?? true,
+        extendedInstalled: nativeRes.extendedInstalled ?? true,
+        inProgress: false,
+        error: null,
+      };
+      this.statusLoaded = true;
+      this.persistStatus();
+      this.notifyStatus(this.getCachedStatus());
+      return this.getCachedStatus();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.currentStatus = {
+        ...this.currentStatus,
+        inProgress: false,
+        error: msg,
+      };
+      this.notifyStatus(this.getCachedStatus());
+      throw new HausaPackInstallError('INSTALL_FAILED', msg);
+    }
+  }
+
+  public async removeExtendedPack(): Promise<HausaPackStatus> {
+    try {
+      if (this.beforeMutateDbHook) {
+        await this.beforeMutateDbHook();
+      }
+      const res = await this.getNativePlugin().removePack({
+        lang: 'ha',
+        packId: HAUSA_PACK_MANIFEST.extendedCompanion?.packId || 'ha-lexica-schema-v4-extended',
+        packLayer: 'extended',
+      });
+      this.currentStatus = {
+        ...this.currentStatus,
+        availableBytes: res.availableBytes,
+        extendedInstalled: false,
+        extendedDbPath: '',
+        extendedDbSizeBytes: 0,
+        error: null,
+      };
+      this.persistStatus();
+      this.notifyStatus(this.getCachedStatus());
+      return this.getCachedStatus();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new HausaPackInstallError('REMOVE_FAILED', msg);
+    }
+  }
+
+  public async verifyExtendedPack(): Promise<HausaPackStatus> {
+    try {
+      const verified = await this.getNativePlugin().verifyInstalledPack({
+        lang: 'ha',
+        packId: HAUSA_PACK_MANIFEST.extendedCompanion?.packId || 'ha-lexica-schema-v4-extended',
+        packLayer: 'extended',
+      });
+      this.currentStatus = {
+        ...this.currentStatus,
+        ...verified,
+        extendedInstalled: verified.extendedInstalled ?? true,
+        error: null,
+      };
+      this.persistStatus();
+      this.notifyStatus(this.getCachedStatus());
+      return this.getCachedStatus();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new HausaPackInstallError('VERIFY_FAILED', msg);
     }
   }
 
@@ -390,7 +522,14 @@ class HausaPackService {
 
   public async removePack(): Promise<HausaPackStatus> {
     try {
-      const res = await this.getNativePlugin().removePack({ lang: 'ha', packId: HAUSA_PACK_MANIFEST.packId });
+      if (this.beforeMutateDbHook) {
+        await this.beforeMutateDbHook();
+      }
+      const res = await this.getNativePlugin().removePack({
+        lang: 'ha',
+        packId: HAUSA_PACK_MANIFEST.packId,
+        packLayer: 'core',
+      });
       this.currentStatus = {
         ...this.currentStatus,
         installed: false,
@@ -412,7 +551,11 @@ class HausaPackService {
 
   public async verifyInstalledPack(): Promise<HausaPackStatus> {
     try {
-      const verified = await this.getNativePlugin().verifyInstalledPack({ lang: 'ha', packId: HAUSA_PACK_MANIFEST.packId });
+      const verified = await this.getNativePlugin().verifyInstalledPack({
+        lang: 'ha',
+        packId: HAUSA_PACK_MANIFEST.packId,
+        packLayer: 'core',
+      });
       this.currentStatus = {
         ...this.currentStatus,
         ...verified,

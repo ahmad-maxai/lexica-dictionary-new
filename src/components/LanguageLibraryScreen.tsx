@@ -16,6 +16,7 @@ import {
 import { HAUSA_PACK_MANIFEST, isHausaSqliteIntegrationEnabled } from '../config/hausaDictionaryConfig';
 import { hausaPackService, type HausaPackStatus } from '../services/hausaPackService';
 import { hausaSqliteRepo, type HausaBenchmarkReport } from '../services/hausaSqliteRepository';
+import { HausaAttributionAndReviewModal } from './HausaAttributionAndReviewModal';
 import {
   getUiCopy,
   getContentCopy,
@@ -38,6 +39,7 @@ import {
   Archive,
   Upload,
   Download,
+  Scale,
 } from 'lucide-react';
 
 interface LanguageLibraryScreenProps {
@@ -77,6 +79,8 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
   const [hausaVerifyMsg, setHausaVerifyMsg] = useState<string | null>(null);
   const [hausaBenchmarkReport, setHausaBenchmarkReport] = useState<HausaBenchmarkReport | null>(null);
   const [isRunningHausaBenchmark, setIsRunningHausaBenchmark] = useState(false);
+  const [isHausaExtendedBusy, setIsHausaExtendedBusy] = useState(false);
+  const [hausaAttributionModalTab, setHausaAttributionModalTab] = useState<'sources' | 'conflicts' | null>(null);
 
   const [isBackupBusy, setIsBackupBusy] = useState(false);
   const [backupStatusMsg, setBackupStatusMsg] = useState<string | null>(null);
@@ -262,6 +266,45 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
       setHausaActionError(err instanceof Error ? err.message : 'Benchmark failed.');
     } finally {
       setIsRunningHausaBenchmark(false);
+    }
+  };
+
+  const handleInstallHausaExtended = async () => {
+    setHausaActionError(null);
+    setHausaVerifyMsg(null);
+    setIsHausaExtendedBusy(true);
+    try {
+      await hausaPackService.installExtendedPack();
+      setHausaVerifyMsg('Hausa Extended Companion Pack installed (examples, multi-sense, etymology & conflicts ready).');
+    } catch (err) {
+      setHausaActionError(err instanceof Error ? err.message : 'Unable to install Hausa Extended pack.');
+    } finally {
+      setIsHausaExtendedBusy(false);
+    }
+  };
+
+  const handleRemoveHausaExtended = async () => {
+    setHausaActionError(null);
+    setHausaVerifyMsg(null);
+    setIsHausaExtendedBusy(true);
+    try {
+      await hausaPackService.removeExtendedPack();
+      setHausaVerifyMsg('Hausa Extended Companion Pack removed. Hausa Core pack remains active.');
+    } catch (err) {
+      setHausaActionError(err instanceof Error ? err.message : 'Unable to remove Hausa Extended pack.');
+    } finally {
+      setIsHausaExtendedBusy(false);
+    }
+  };
+
+  const handleVerifyHausaExtended = async () => {
+    setHausaActionError(null);
+    setHausaVerifyMsg(null);
+    try {
+      await hausaPackService.verifyExtendedPack();
+      setHausaVerifyMsg('Hausa Extended Companion SQLite quick_check OK.');
+    } catch (err) {
+      setHausaActionError(err instanceof Error ? err.message : 'Extended verification failed.');
     }
   };
 
@@ -456,12 +499,13 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
               : ENGLISH_PACK_MANIFEST.uncompressedSizeBytes) /
             (1024 * 1024)
           ).toFixed(2);
-          const haCompressedKb = (HAUSA_PACK_MANIFEST.compressedSizeBytes / 1024).toFixed(0);
-          const haUncompressedKb = (
+          const haCompressedMb = (HAUSA_PACK_MANIFEST.compressedSizeBytes / (1024 * 1024)).toFixed(2);
+          const haUncompressedMb = (
             (isInstalled && hausaStatus.dbSizeBytes
               ? hausaStatus.dbSizeBytes
-              : HAUSA_PACK_MANIFEST.uncompressedSizeBytes) / 1024
-          ).toFixed(0);
+              : HAUSA_PACK_MANIFEST.uncompressedSizeBytes) /
+            (1024 * 1024)
+          ).toFixed(2);
           const hasPartialResume = isEnglishSqliteCard && !isInstalled && englishStatus.partialBytes > 0;
 
           return (
@@ -520,8 +564,8 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                           : `${enCompressedMb} MB download · ${enUncompressedMb} MB offline`
                         : isHausaSqliteCard
                         ? isInstalled
-                          ? `${haUncompressedKb} KB offline`
-                          : `${haCompressedKb} KB download · ${haUncompressedKb} KB offline`
+                          ? `${haUncompressedMb} MB offline`
+                          : `${haCompressedMb} MB download · ${haUncompressedMb} MB offline`
                         : `${kbSize} KB (${stat.actualSizeMb.toFixed(2)} MB)`}
                     </div>
                     <div
@@ -573,7 +617,7 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                             : isEnglishSqliteCard
                               ? `Install (${enCompressedMb} MB)`
                               : isHausaSqliteCard
-                              ? `Install (${haCompressedKb} KB)`
+                              ? `Install (${haCompressedMb} MB)`
                               : copy.library.installPack}
                         </span>
                       </>
@@ -811,12 +855,16 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <div className="font-bold text-slate-900 dark:text-slate-100">
-                            {HAUSA_PACK_MANIFEST.attribution.sourceName}
+                            Hausa Schema v{HAUSA_PACK_MANIFEST.schemaVersion} Open-Source Pack (5 Sources)
                           </div>
                           <div className="text-[11px] text-slate-500 dark:text-slate-400">
                             {HAUSA_PACK_MANIFEST.attribution.license} · Pack v{HAUSA_PACK_MANIFEST.packVersion} ·{' '}
                             {HAUSA_PACK_MANIFEST.distinctHeadwords.toLocaleString()} headwords ·{' '}
-                            {HAUSA_PACK_MANIFEST.totalWordForms?.toLocaleString()} word forms
+                            {(
+                              (HAUSA_PACK_MANIFEST.hausaMonolingualCount || 0) +
+                              (HAUSA_PACK_MANIFEST.bilingualExplanationCount || 0)
+                            ).toLocaleString()}{' '}
+                            Hausa explanations · {HAUSA_PACK_MANIFEST.englishGlossOnlyCount?.toLocaleString()} EN gloss only
                           </div>
                         </div>
                         {hausaStatus.availableBytes > 0 && (
@@ -827,37 +875,97 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                       </div>
 
                       {HAUSA_PACK_MANIFEST.extendedCompanion && (
-                        <div className="p-2.5 rounded-xl bg-white/80 dark:bg-[#101C16]/80 border border-slate-200/70 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300">
-                          <span className="font-semibold text-slate-800 dark:text-slate-100">
-                            Optional Extended Enrichment ({(HAUSA_PACK_MANIFEST.extendedCompanion.uncompressedSizeBytes / 1024).toFixed(0)} KB):
-                          </span>{' '}
-                          {hausaStatus.extendedInstalled
-                            ? 'Installed — secondary senses, examples & etymologies active.'
-                            : 'Not installed (optional). Core offline dictionary remains complete for exact, prefix, inflection & definition search without downloading Extended data.'}
+                        <div className="p-2.5 rounded-xl bg-white/80 dark:bg-[#101C16]/80 border border-slate-200/70 dark:border-slate-800 space-y-2 text-[11px] text-slate-600 dark:text-slate-300">
+                          <div>
+                            <span className="font-semibold text-slate-800 dark:text-slate-100">
+                              Optional Extended Enrichment (
+                              {(HAUSA_PACK_MANIFEST.extendedCompanion.compressedSizeBytes / (1024 * 1024)).toFixed(2)} MB download ·{' '}
+                              {(HAUSA_PACK_MANIFEST.extendedCompanion.uncompressedSizeBytes / (1024 * 1024)).toFixed(2)} MB offline):
+                            </span>{' '}
+                            {hausaStatus.extendedInstalled
+                              ? 'Installed — multi-sense definitions, Tatoeba examples, etymology, audio refs & conflict review data active.'
+                              : 'Not installed (optional). Core dictionary remains usable standalone offline for Hausa/English definitions & Ajami search.'}
+                          </div>
+
+                          {isInstalled && (
+                            <div className="flex flex-wrap items-center gap-2">
+                              {!hausaStatus.extendedInstalled ? (
+                                <button
+                                  type="button"
+                                  disabled={isHausaExtendedBusy || isDownloading}
+                                  onClick={() => void handleInstallHausaExtended()}
+                                  className="px-3 py-1.5 rounded-lg bg-[#1B382B] text-white text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                                >
+                                  <HardDriveDownload className="w-3.5 h-3.5" />
+                                  <span>
+                                    {isHausaExtendedBusy
+                                      ? 'Installing Extended...'
+                                      : `Install Extended (${(
+                                          HAUSA_PACK_MANIFEST.extendedCompanion.compressedSizeBytes /
+                                          (1024 * 1024)
+                                        ).toFixed(2)} MB)`}
+                                  </span>
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleVerifyHausaExtended()}
+                                    className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1F372C] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] flex items-center gap-1.5 cursor-pointer"
+                                  >
+                                    <ShieldCheck className="w-3.5 h-3.5" />
+                                    <span>Verify Extended</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isHausaExtendedBusy}
+                                    onClick={() => void handleRemoveHausaExtended()}
+                                    className="px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 text-[11px] font-semibold text-rose-700 dark:text-rose-300 flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span>Remove Extended Only</span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
 
-                      {isInstalled && (
-                        <div className="flex flex-wrap items-center gap-2 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => void handleVerifyHausa()}
-                            className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1F372C] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <ShieldCheck className="w-3.5 h-3.5" />
-                            <span>Verify SQLite</span>
-                          </button>
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        {isInstalled && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void handleVerifyHausa()}
+                              className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1F372C] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              <span>Verify Core</span>
+                            </button>
 
-                          <button
-                            type="button"
-                            disabled={isRunningHausaBenchmark}
-                            onClick={() => void handleRunHausaBenchmark()}
-                            className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1F372C] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-                          >
-                            <Gauge className="w-3.5 h-3.5" />
-                            <span>{isRunningHausaBenchmark ? 'Running Benchmark...' : 'Run Device Benchmark'}</span>
-                          </button>
+                            <button
+                              type="button"
+                              disabled={isRunningHausaBenchmark}
+                              onClick={() => void handleRunHausaBenchmark()}
+                              className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1F372C] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                            >
+                              <Gauge className="w-3.5 h-3.5" />
+                              <span>{isRunningHausaBenchmark ? 'Running Benchmark...' : 'Run Benchmark'}</span>
+                            </button>
+                          </>
+                        )}
 
+                        <button
+                          type="button"
+                          onClick={() => setHausaAttributionModalTab('sources')}
+                          className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1F372C] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Scale className="w-3.5 h-3.5" />
+                          <span>Licenses &amp; Conflict QA ({HAUSA_PACK_MANIFEST.conflictCount})</span>
+                        </button>
+
+                        {isInstalled && (
                           <button
                             type="button"
                             onClick={() => void handleRemoveHausa()}
@@ -866,8 +974,8 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                             <Trash2 className="w-3.5 h-3.5" />
                             <span>Remove Pack</span>
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
 
                       {hausaVerifyMsg && (
                         <div className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
@@ -1047,6 +1155,12 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
           </div>
         )}
       </section>
+
+      <HausaAttributionAndReviewModal
+        isOpen={hausaAttributionModalTab !== null}
+        onClose={() => setHausaAttributionModalTab(null)}
+        initialTab={hausaAttributionModalTab || 'sources'}
+      />
     </div>
   );
 };

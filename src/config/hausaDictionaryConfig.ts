@@ -1,3 +1,15 @@
+export interface HausaSourceAttribution {
+  code: string;
+  sourceName: string;
+  license: string;
+  attributionText: string;
+  sourceUrl: string;
+  licenseUrl: string;
+  shareAlikeRequired: boolean;
+  entriesIncludedCount?: number;
+  role: string;
+}
+
 export interface HausaPackManifest {
   packId: string;
   targetLanguage: 'ha';
@@ -17,6 +29,10 @@ export interface HausaPackManifest {
   totalSenses: number;
   corePrimarySenses?: number;
   totalWordForms?: number;
+  hausaMonolingualCount?: number;
+  bilingualExplanationCount?: number;
+  englishGlossOnlyCount?: number;
+  conflictCount?: number;
   extendedCompanion?: {
     packId: string;
     packLayer: 'extended';
@@ -37,6 +53,9 @@ export interface HausaPackManifest {
     sourceUrl: string;
     licenseUrl: string;
   };
+  sourceAttributions: HausaSourceAttribution[];
+  kamusunHausaStatusNote: string;
+  appVsDataLicensingNote: string;
 }
 
 export interface ManifestValidationResult {
@@ -114,54 +133,145 @@ export function validateHausaPackManifest(
 }
 
 export const HAUSA_PACK_MANIFEST: HausaPackManifest = {
-  packId: 'ha-wiktionary-sqlite',
+  packId: 'ha-lexica-schema-v4',
   targetLanguage: 'ha',
   format: 'sqlite-gzip',
   packLayer: 'core',
-  schemaVersion: 3,
-  packVersion: '0.4.0-core',
-  datasetVersion: '2026.11-wiktionary-ha-v0.4.0',
-  releaseTag: 'prototype-ha-core-v0.4.0',
+  schemaVersion: 4,
+  packVersion: '0.5.0-core',
+  datasetVersion: '2026.11-hausa-schema-v4-v0.5.0',
+  releaseTag: 'prototype-ha-core-v0.5.0',
   downloadUrl:
-    'https://github.com/ahmad-maxai/lexica-dictionary-new/releases/download/prototype-ha-core-v0.4.0/lexica_hausa_core.db.gz',
-  compressedSizeBytes: 303106,
-  compressedSha256: '15dbc6906124348d21b1ba46475e85092feb705babd4315295f582f04971ff70',
-  uncompressedSizeBytes: 663552,
-  uncompressedSha256: '08c0ae60f2329e3685db34a9b059357667dc0de1ba525343ad78c74f8e52c953',
-  acceptedEntries: 2260,
-  distinctHeadwords: 2013,
-  totalSenses: 2832,
-  corePrimarySenses: 2260,
-  totalWordForms: 4502,
+    'https://github.com/ahmad-maxai/lexica-dictionary-new/releases/download/prototype-ha-core-v0.5.0/lexica_hausa_core.db.gz',
+  compressedSizeBytes: 1250359,
+  compressedSha256: '5a3ca52afceb1565c075f584f511c3e71f129148b13c5a5171c54a7e98dafc0a',
+  uncompressedSizeBytes: 3846144,
+  uncompressedSha256: 'f27c2beac0935124146db25cbc9d4de9ac6c185cf3e403570873bcdc8dbfcc61',
+  acceptedEntries: 10201,
+  distinctHeadwords: 9893,
+  totalSenses: 15010,
+  corePrimarySenses: 10201,
+  totalWordForms: 5581,
+  hausaMonolingualCount: 6180,
+  bilingualExplanationCount: 2556,
+  englishGlossOnlyCount: 1465,
+  conflictCount: 352,
   extendedCompanion: {
-    packId: 'ha-wiktionary-sqlite-extended',
+    packId: 'ha-lexica-schema-v4-extended',
     packLayer: 'extended',
-    schemaVersion: 3,
-    packVersion: '0.4.0-extended',
+    schemaVersion: 4,
+    packVersion: '0.5.0-extended',
     optional: true,
     autoDownload: false,
-    compressedSizeBytes: 138086,
-    compressedSha256: 'e726147cba40d88eee1b23ba2d0d87f8e8383c371f1131579440ced3a3773906',
-    uncompressedSizeBytes: 421888,
-    uncompressedSha256: 'c72ffb3bf189acab9f682ad296dae076f611ac87b5258172ab587948a665d810',
+    compressedSizeBytes: 1083908,
+    compressedSha256: '9884ac6d24ece944c66a92499e82c84492b2bd365e9e3059bc650339a5bca9d9',
+    uncompressedSizeBytes: 4861952,
+    uncompressedSha256: '33aab68b6ff5b02e89995355755ccd18b225fc06715f2696524ca9682bb6cbd9',
     downloadUrl:
-      'https://github.com/ahmad-maxai/lexica-dictionary-new/releases/download/prototype-ha-core-v0.4.0/lexica_hausa_extended.db.gz',
+      'https://github.com/ahmad-maxai/lexica-dictionary-new/releases/download/prototype-ha-core-v0.5.0/lexica_hausa_extended.db.gz',
   },
   attribution: {
-    sourceName: 'Hausa Wiktionary via Kaikki.org & Lexica Curation',
-    license: 'CC BY-SA 4.0 & GFDL',
+    sourceName: 'Hausa Wiktionary, Kaikki EN-Wiktionary, Wikidata Q56475, Tatoeba & Lexica Curated Corpus',
+    license: 'CC BY-SA 4.0 & GFDL; CC0 1.0; CC BY 2.0 FR',
     attributionText:
-      'Extracted from Wiktionary by Kaikki.org (Wiktextract) and curated by Lexica Multilingual Lexicography Project. Copyright Wikimedia Contributors and Tatu Ylönen.',
-    sourceUrl: 'https://kaikki.org/dictionary/Hausa/',
+      'Open-licensed Hausa lexicography compiled from Hausa Wiktionary (ha.wiktionary.org), English Wiktionary via Kaikki.org (CC BY-SA 4.0 & GFDL), Wikidata Q56475 (CC0 1.0), Tatoeba (CC BY 2.0 FR), and Lexica Curated Corpus.',
+    sourceUrl: 'https://ha.wiktionary.org/',
     licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/',
   },
+  sourceAttributions: [
+    {
+      code: 'hawiktionary',
+      sourceName: 'Hausa Wiktionary (ha.wiktionary.org)',
+      license: 'CC BY-SA 4.0 & GFDL',
+      attributionText:
+        'Copyright Wikimedia Contributors (ha.wiktionary.org). Share-Alike applies to modified or derivative Wiktionary dictionary text under CC BY-SA 4.0.',
+      sourceUrl: 'https://ha.wiktionary.org/',
+      licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/',
+      shareAlikeRequired: true,
+      entriesIncludedCount: 8715,
+      role: 'Primary Hausa-to-Hausa definitions, examples & plurals',
+    },
+    {
+      code: 'kaikki-en-wikt',
+      sourceName: 'English Wiktionary Hausa via Kaikki.org',
+      license: 'CC BY-SA 4.0 & GFDL',
+      attributionText:
+        'Copyright Wikimedia Contributors & Tatu Ylönen (Kaikki.org / Wiktextract). Share-Alike applies under CC BY-SA 4.0.',
+      sourceUrl: 'https://kaikki.org/dictionary/Hausa/',
+      licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/',
+      shareAlikeRequired: true,
+      entriesIncludedCount: 1030,
+      role: 'English glosses, IPA pronunciations, audio refs & inflected forms',
+    },
+    {
+      code: 'wikidata-q56475',
+      sourceName: 'Wikidata Lexemes (Hausa Q56475)',
+      license: 'CC0 1.0 Public Domain Dedication',
+      attributionText: 'Structured lexeme lemmas, Ajami forms and bilingual glosses from Wikidata contributors.',
+      sourceUrl: 'https://www.wikidata.org/',
+      licenseUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
+      shareAlikeRequired: false,
+      entriesIncludedCount: 385,
+      role: 'Ajami Arabic-script orthographic variants & supplementary glosses',
+    },
+    {
+      code: 'tatoeba-hau',
+      sourceName: 'Tatoeba Hausa Sentence Corpus',
+      license: 'CC BY 2.0 FR',
+      attributionText: 'Hausa usage sentences contributed by Tatoeba Project contributors (CC BY 2.0 FR).',
+      sourceUrl: 'https://tatoeba.org/',
+      licenseUrl: 'https://creativecommons.org/licenses/by/2.0/fr/',
+      shareAlikeRequired: false,
+      role: 'Verified Hausa usage examples (Extended pack)',
+    },
+    {
+      code: 'lexica-curated',
+      sourceName: 'Lexica Curated Hausa Corpus',
+      license: 'CC0 1.0 / Lexica Project License',
+      attributionText: 'Curated and native-authored by the LEXICA Multilingual Lexicography Project.',
+      sourceUrl: 'https://github.com/ahmad-maxai/lexica-dictionary-new',
+      licenseUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
+      shareAlikeRequired: false,
+      entriesIncludedCount: 71,
+      role: 'Human-verified bilingual entries, IPA, tone & Ajami variants',
+    },
+  ],
+  kamusunHausaStatusNote:
+    '0 entries from Ƙamusun Hausa (CSNL / Bayero University) are included. Written permission from CSNL/HausaNLP is required prior to any future ingestion.',
+  appVsDataLicensingNote:
+    'Application source code and downloaded offline dictionary data packs are governed by their respective licenses. Wiktionary-derived dictionary packs retain CC BY-SA 4.0 & GFDL Share-Alike obligations; the entire bundled LEXICA database is not claimed to be under GPL.',
 };
 
+const HAUSA_FEATURE_FLAG_KEY = 'lexica_enable_hausa_sqlite';
+let runtimeHausaOverride: boolean | null = null;
+
 export function isHausaSqliteIntegrationEnabled(): boolean {
+  if (runtimeHausaOverride !== null) {
+    return runtimeHausaOverride;
+  }
   if (typeof window !== 'undefined') {
-    const override = localStorage.getItem('lexica_enable_hausa_sqlite');
-    if (override === 'false') return false;
-    if (override === 'true') return true;
+    try {
+      const override = window.localStorage.getItem(HAUSA_FEATURE_FLAG_KEY);
+      if (override === 'false') return false;
+      if (override === 'true') return true;
+    } catch {
+      // Ignore storage access errors
+    }
   }
   return true;
+}
+
+export function setHausaSqliteIntegrationEnabled(enabled: boolean | null): void {
+  runtimeHausaOverride = enabled;
+  if (typeof window !== 'undefined') {
+    try {
+      if (enabled === null) {
+        window.localStorage.removeItem(HAUSA_FEATURE_FLAG_KEY);
+      } else {
+        window.localStorage.setItem(HAUSA_FEATURE_FLAG_KEY, String(enabled));
+      }
+    } catch {
+      // Ignore storage access errors
+    }
+  }
 }
