@@ -1,0 +1,17 @@
+{
+  "packId": "ha-wiktionary-sqlite",
+  "targetLanguage": "ha",
+  "totalEntries": 2260,
+  "distinctHeadwords": 2013,
+  "entriesWithValidPrimaryDef": 2260,
+  "entriesMissingPrimaryDef": 0,
+  "totalSenses": 2832,
+  "wordFormsPreserved": 4502,
+  "entriesWithIpa": 2214,
+  "ipaCoveragePercent": 97.96,
+  "coreDbUncompressedBytes": 663552,
+  "coreDbCompressedBytes": 303106,
+  "extDbUncompressedBytes": 421888,
+  "extDbCompressedBytes": 138086,
+  "timestamp": "2026-11-23 09:56:10 UTC"
+}

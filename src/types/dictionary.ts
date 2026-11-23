@@ -184,7 +184,7 @@ export interface StandardSearchResponse {
   hasMore?: boolean;
   offset?: number;
   limit?: number;
-  engineSource?: 'sqlite-en' | 'starter-corpus' | 'web-preview-fallback';
+  engineSource?: 'sqlite-en' | 'sqlite-ha' | 'starter-corpus' | 'web-preview-fallback';
 }
 
 export interface MultilingualSenseMatch {

@@ -12,6 +12,10 @@ import { ENGLISH_PACK_MANIFEST, isEnglishSqliteIntegrationEnabled } from '../con
 import { englishPackService, type EnglishPackStatus } from '../services/englishPackService';
 import { englishSqliteRepo } from '../services/englishSqliteRepository';
 import { searchEnglishStandardUnified } from '../services/englishSearchCoordinator';
+import { isHausaSqliteIntegrationEnabled } from '../config/hausaDictionaryConfig';
+import { hausaPackService, type HausaPackStatus } from '../services/hausaPackService';
+import { hausaSqliteRepo } from '../services/hausaSqliteRepository';
+import { searchHausaStandardUnified } from '../services/hausaSearchCoordinator';
 import {
   getUiCopy,
   formatText,
@@ -177,6 +181,96 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
     }
   };
 
+  const [hausaPackStatus, setHausaPackStatus] = useState<HausaPackStatus>(() =>
+    hausaPackService.getCachedStatus()
+  );
+  const [asyncHausaResponse, setAsyncHausaResponse] = useState<StandardSearchResponse | null>(null);
+  const [isHausaLoading, setIsHausaLoading] = useState(false);
+  const [isLoadingMoreHausa, setIsLoadingMoreHausa] = useState(false);
+  const [hausaRetryTick, setHausaRetryTick] = useState(0);
+
+  useEffect(() => {
+    return hausaPackService.subscribeStatus((status) => {
+      setHausaPackStatus(status);
+    });
+  }, []);
+
+  const useHausaSqlitePath =
+    dictionaryMode === 'standard' && sourceLang === 'ha' && isHausaSqliteIntegrationEnabled();
+
+  useEffect(() => {
+    if (!useHausaSqlitePath) {
+      setAsyncHausaResponse(null);
+      setIsHausaLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsHausaLoading(true);
+    searchHausaStandardUnified(query, {
+      partOfSpeech: selectedPartOfSpeech,
+      letter: selectedLetter,
+      limit: 20,
+      offset: 0,
+    })
+      .then((res) => {
+        if (!cancelled) {
+          setAsyncHausaResponse(res);
+          setIsHausaLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setAsyncHausaResponse({
+            status: 'error',
+            language: 'ha',
+            query,
+            results: [],
+            engineSource: 'sqlite-ha',
+            message: err instanceof Error ? err.message : 'Unable to query Hausa SQLite dictionary.',
+          });
+          setIsHausaLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    useHausaSqlitePath,
+    query,
+    selectedPartOfSpeech,
+    selectedLetter,
+    hausaPackStatus.installed,
+    hausaRetryTick,
+  ]);
+
+  const handleLoadMoreHausa = async () => {
+    if (!asyncHausaResponse?.hasMore || isLoadingMoreHausa) return;
+    setIsLoadingMoreHausa(true);
+    try {
+      const nextOffset = asyncHausaResponse.results.length;
+      const nextPage = await searchHausaStandardUnified(query, {
+        partOfSpeech: selectedPartOfSpeech,
+        letter: selectedLetter,
+        limit: 20,
+        offset: nextOffset,
+      });
+      setAsyncHausaResponse((prev) => {
+        if (!prev) return nextPage;
+        const existingIds = new Set(prev.results.map((r) => r.entry.id));
+        const merged = [...prev.results, ...nextPage.results.filter((r) => !existingIds.has(r.entry.id))];
+        return {
+          ...nextPage,
+          results: merged,
+          hasMore: nextPage.hasMore,
+        };
+      });
+    } finally {
+      setIsLoadingMoreHausa(false);
+    }
+  };
+
   useEffect(() => {
     if (initialQuery) {
       setQuery(initialQuery);
@@ -239,10 +333,10 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
     return Array.from(letters).sort((a, b) => a.localeCompare(b));
   }, [sourceLang, useEnglishSqlitePath, englishAvailableLetters]);
 
-  // Execute Engine 1 (Standard) OR Engine 2 (Multilingual)
   const syncStandardResponse: StandardSearchResponse | null = useMemo(() => {
     if (dictionaryMode !== 'standard') return null;
     if (sourceLang === 'en' && isEnglishSqliteIntegrationEnabled()) return null;
+    if (sourceLang === 'ha' && isHausaSqliteIntegrationEnabled()) return null;
     return dictionaryDb.searchStandard(query, sourceLang, {
       partOfSpeech: selectedPartOfSpeech,
       letter: selectedLetter,
@@ -250,7 +344,8 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
   }, [dictionaryMode, query, sourceLang, selectedPartOfSpeech, selectedLetter]);
 
   const standardResponse: StandardSearchResponse | null =
-    useEnglishSqlitePath ? asyncEnglishResponse : syncStandardResponse;
+    useEnglishSqlitePath ? asyncEnglishResponse :
+    useHausaSqlitePath ? asyncHausaResponse : syncStandardResponse;
 
   const multilingualResponse: MultilingualSearchResponse | null = useMemo(() => {
     if (dictionaryMode !== 'multilingual') return null;
@@ -540,7 +635,8 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
           </div>
 
           <div className="text-xs text-slate-500 shrink-0 tabular-nums flex items-center gap-2">
-            {dictionaryMode === 'standard' && standardResponse?.engineSource === 'sqlite-en' && (
+            {dictionaryMode === 'standard' &&
+              (standardResponse?.engineSource === 'sqlite-en' || standardResponse?.engineSource === 'sqlite-ha') && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#EEF4F0] dark:bg-[#1F372C] text-[#204031] dark:text-[#7E9E88]">
                 Wiktionary
               </span>
@@ -859,32 +955,32 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
             })
           )}
 
-          {/* PAGINATED LOAD MORE FOR ENGLISH SQLITE */}
+          {/* PAGINATED LOAD MORE FOR SQLITE PACKS */}
           {dictionaryMode === 'standard' &&
-            standardResponse?.engineSource === 'sqlite-en' &&
+            (standardResponse?.engineSource === 'sqlite-en' || standardResponse?.engineSource === 'sqlite-ha') &&
             standardResponse.hasMore && (
               <div className="pt-2 flex justify-center">
                 <button
                   type="button"
-                  disabled={isLoadingMoreEnglish}
-                  onClick={handleLoadMoreEnglish}
+                  disabled={isLoadingMoreEnglish || isLoadingMoreHausa}
+                  onClick={standardResponse?.engineSource === 'sqlite-en' ? handleLoadMoreEnglish : handleLoadMoreHausa}
                   className="px-5 py-2.5 rounded-xl bg-white dark:bg-[#15231D] border border-slate-200 dark:border-slate-700 hover:border-[#204031] dark:hover:border-[#7E9E88] text-xs font-semibold text-[#204031] dark:text-[#7E9E88] shadow-xs cursor-pointer transition-all disabled:opacity-60"
                 >
-                  {isLoadingMoreEnglish
+                  {isLoadingMoreEnglish || isLoadingMoreHausa
                     ? 'Loading more entries...'
                     : `Load more (${standardResponse.results.length.toLocaleString()} of ${(standardResponse.totalCount || 0).toLocaleString()})`}
                 </button>
               </div>
             )}
 
-          {isEnglishLoading && activeCount === 0 && (
+          {((isEnglishLoading && useEnglishSqlitePath) || (isHausaLoading && useHausaSqlitePath)) && activeCount === 0 && (
             <div className="py-10 text-center text-xs text-slate-500 dark:text-slate-400">
-              Querying offline English dictionary...
+              {useHausaSqlitePath ? 'Querying offline Hausa dictionary...' : 'Querying offline English dictionary...'}
             </div>
           )}
 
           {/* EMPTY / FAILURE STATE */}
-          {!isEnglishLoading && activeCount === 0 && (
+          {!isEnglishLoading && !isHausaLoading && activeCount === 0 && (
             <div className="py-12 px-4 text-center rounded-2xl bg-white dark:bg-[#15231D] border border-dashed border-slate-200 dark:border-slate-800 space-y-3">
               {activeStatus === 'language_not_installed' || activeStatus === 'error' ? (
                 <AlertCircle className="w-8 h-8 text-[#C47248] mx-auto" />
@@ -898,7 +994,9 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                 </h4>
 
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1 leading-relaxed">
-                  {activeStatus === 'language_not_installed' && sourceLang === 'en' && standardResponse?.message
+                  {activeStatus === 'language_not_installed' &&
+                  (sourceLang === 'en' || sourceLang === 'ha') &&
+                  standardResponse?.message
                     ? standardResponse.message
                     : activeStatus === 'error' && standardResponse?.message
                       ? standardResponse.message
@@ -914,14 +1012,18 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                 >
                   {sourceLang === 'en' && englishPackService.isNativeAndroid()
                     ? `Install English Pack (${(ENGLISH_PACK_MANIFEST.compressedSizeBytes / (1024 * 1024)).toFixed(1)} MB)`
-                    : copy.statuses.openLanguageLibrary}
+                    : sourceLang === 'ha' && hausaPackService.isNativeAndroid()
+                      ? `Install Hausa Pack`
+                      : copy.statuses.openLanguageLibrary}
                 </button>
               )}
 
-              {activeStatus === 'error' && useEnglishSqlitePath && (
+              {activeStatus === 'error' && (useEnglishSqlitePath || useHausaSqlitePath) && (
                 <button
                   type="button"
-                  onClick={() => setEnglishRetryTick((t) => t + 1)}
+                  onClick={() =>
+                    useHausaSqlitePath ? setHausaRetryTick((t) => t + 1) : setEnglishRetryTick((t) => t + 1)
+                  }
                   className="px-4 py-2 rounded-xl bg-[#1B382B] text-white text-xs font-semibold cursor-pointer hover:bg-[#142A20] transition-all"
                 >
                   Retry Query

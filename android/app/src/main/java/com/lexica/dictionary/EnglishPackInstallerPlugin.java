@@ -91,13 +91,44 @@ public class EnglishPackInstallerPlugin extends Plugin {
         return stat.getAvailableBytes();
     }
 
+    private boolean isHausa(PluginCall call) {
+        if (call == null) return false;
+        String lang = call.getString("lang", "");
+        String packId = call.getString("packId", "");
+        return "ha".equalsIgnoreCase(lang) || (packId != null && packId.startsWith("ha-"));
+    }
+
+    private File getActiveDb(File dir, PluginCall call) {
+        return new File(dir, isHausa(call) ? "lexica_hausaSQLite.db" : ACTIVE_DB_NAME);
+    }
+
+    private File getTmpDb(File dir, PluginCall call) {
+        return new File(dir, isHausa(call) ? "lexica_hausaSQLite.db.tmp" : TMP_DB_NAME);
+    }
+
+    private File getBakDb(File dir, PluginCall call) {
+        return new File(dir, isHausa(call) ? "lexica_hausaSQLite.db.bak" : BACKUP_DB_NAME);
+    }
+
+    private File getPartGz(File dir, PluginCall call) {
+        return new File(dir, isHausa(call) ? "lexica_hausa.db.gz.part" : PART_GZ_NAME);
+    }
+
+    private File getMetaFile(File dir, PluginCall call) {
+        return new File(dir, isHausa(call) ? "lexica_hausa.db.gz.meta.json" : META_FILE_NAME);
+    }
+
+    private File getExtendedDb(File dir, PluginCall call) {
+        return new File(dir, isHausa(call) ? "lexica_hausa_extended.db" : EXTENDED_DB_NAME);
+    }
+
     @PluginMethod
     public void getPackStatus(PluginCall call) {
         executor.execute(() -> {
             try {
                 File dir = getPacksDir();
-                File activeDb = new File(dir, ACTIVE_DB_NAME);
-                File partGz = new File(dir, PART_GZ_NAME);
+                File activeDb = getActiveDb(dir, call);
+                File partGz = getPartGz(dir, call);
                 long availableBytes = getAvailableStorageBytes(dir);
 
                 JSObject res = new JSObject();
@@ -179,11 +210,11 @@ public class EnglishPackInstallerPlugin extends Plugin {
 
         executor.execute(() -> {
             File dir = getPacksDir();
-            File activeDb = new File(dir, ACTIVE_DB_NAME);
-            File tmpDb = new File(dir, TMP_DB_NAME);
-            File bakDb = new File(dir, BACKUP_DB_NAME);
-            File partGz = new File(dir, PART_GZ_NAME);
-            File metaFile = new File(dir, META_FILE_NAME);
+            File activeDb = getActiveDb(dir, call);
+            File tmpDb = getTmpDb(dir, call);
+            File bakDb = getBakDb(dir, call);
+            File partGz = getPartGz(dir, call);
+            File metaFile = getMetaFile(dir, call);
 
             try {
                 // Step 0: Duplicate-version download guard — reuse verified local DB without network I/O
@@ -336,13 +367,13 @@ public class EnglishPackInstallerPlugin extends Plugin {
         executor.execute(() -> {
             try {
                 File dir = getPacksDir();
-                File activeDb = new File(dir, ACTIVE_DB_NAME);
+                File activeDb = getActiveDb(dir, call);
                 deleteIfExists(activeDb);
-                deleteIfExists(new File(dir, TMP_DB_NAME));
-                deleteIfExists(new File(dir, BACKUP_DB_NAME));
-                deleteIfExists(new File(dir, PART_GZ_NAME));
-                deleteIfExists(new File(dir, META_FILE_NAME));
-                deleteIfExists(new File(dir, EXTENDED_DB_NAME));
+                deleteIfExists(getTmpDb(dir, call));
+                deleteIfExists(getBakDb(dir, call));
+                deleteIfExists(getPartGz(dir, call));
+                deleteIfExists(getMetaFile(dir, call));
+                deleteIfExists(getExtendedDb(dir, call));
                 JSObject res = new JSObject();
                 res.put("removed", true);
                 res.put("availableBytes", getAvailableStorageBytes(dir));
@@ -358,9 +389,9 @@ public class EnglishPackInstallerPlugin extends Plugin {
         executor.execute(() -> {
             try {
                 File dir = getPacksDir();
-                File activeDb = new File(dir, ACTIVE_DB_NAME);
+                File activeDb = getActiveDb(dir, call);
                 if (!activeDb.exists()) {
-                    call.reject("English pack database is not installed.", "NOT_INSTALLED");
+                    call.reject("Dictionary pack database is not installed.", "NOT_INSTALLED");
                     return;
                 }
                 JSObject summary = validateStagingDatabase(activeDb);
@@ -1107,7 +1138,8 @@ public class EnglishPackInstallerPlugin extends Plugin {
         target.put("corePrimarySenses", metaSummary.optInt("core_primary_senses", acceptedEntries));
         target.put("totalWordForms", metaSummary.optInt("total_word_forms", 0));
 
-        File extDb = new File(packsDir, EXTENDED_DB_NAME);
+        boolean isHa = target.optString("dbPath", "").contains("hausa");
+        File extDb = new File(packsDir, isHa ? "lexica_hausa_extended.db" : EXTENDED_DB_NAME);
         boolean extInstalled = extDb.exists() && extDb.length() > 0L;
         target.put("extendedInstalled", extInstalled);
         target.put("extendedDbPath", extInstalled ? extDb.getAbsolutePath() : "");

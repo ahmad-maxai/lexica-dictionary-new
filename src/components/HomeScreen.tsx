@@ -12,6 +12,9 @@ import { dictionaryDb } from '../services/dictionaryDatabase';
 import { ENGLISH_PACK_MANIFEST, isEnglishSqliteIntegrationEnabled } from '../config/englishDictionaryConfig';
 import { englishPackService, type EnglishPackStatus } from '../services/englishPackService';
 import { searchEnglishStandardUnified } from '../services/englishSearchCoordinator';
+import { isHausaSqliteIntegrationEnabled } from '../config/hausaDictionaryConfig';
+import { hausaPackService, type HausaPackStatus } from '../services/hausaPackService';
+import { searchHausaStandardUnified } from '../services/hausaSearchCoordinator';
 import { audioService } from '../services/audioService';
 import {
   getUiCopy,
@@ -79,10 +82,23 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [asyncEnglishResponse, setAsyncEnglishResponse] = useState<StandardSearchResponse | null>(null);
   const [isEnglishSearching, setIsEnglishSearching] = useState(false);
 
+  const [hausaPackStatus, setHausaPackStatus] = useState<HausaPackStatus>(() =>
+    hausaPackService.getCachedStatus()
+  );
+  const [asyncHausaResponse, setAsyncHausaResponse] = useState<StandardSearchResponse | null>(null);
+  const [isHausaSearching, setIsHausaSearching] = useState(false);
+
   useEffect(() => {
-    return englishPackService.subscribeStatus((status) => {
+    const unsubEn = englishPackService.subscribeStatus((status) => {
       setEnglishPackStatus(status);
     });
+    const unsubHa = hausaPackService.subscribeStatus((status) => {
+      setHausaPackStatus(status);
+    });
+    return () => {
+      unsubEn();
+      unsubHa();
+    };
   }, []);
 
   useEffect(() => {
@@ -126,6 +142,47 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     };
   }, [dictionaryMode, sourceLang, searchQuery, englishPackStatus.installed]);
 
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (
+      dictionaryMode !== 'standard' ||
+      sourceLang !== 'ha' ||
+      !trimmed ||
+      !isHausaSqliteIntegrationEnabled()
+    ) {
+      setAsyncHausaResponse(null);
+      setIsHausaSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsHausaSearching(true);
+    searchHausaStandardUnified(trimmed, { limit: 20, offset: 0 })
+      .then((res) => {
+        if (!cancelled) {
+          setAsyncHausaResponse(res);
+          setIsHausaSearching(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setAsyncHausaResponse({
+            status: 'error',
+            language: 'ha',
+            query: trimmed,
+            results: [],
+            engineSource: 'sqlite-ha',
+            message: err instanceof Error ? err.message : 'Unable to search offline Hausa dictionary.',
+          });
+          setIsHausaSearching(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dictionaryMode, sourceLang, searchQuery, hausaPackStatus.installed]);
+
   const handleSelectSearchResult = (entry: WordEntry) => {
     if (searchQuery.trim() && onRecordSearch) {
       onRecordSearch(searchQuery.trim());
@@ -166,12 +223,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const syncStandardResponse: StandardSearchResponse | null = useMemo(() => {
     if (dictionaryMode !== 'standard' || !searchQuery.trim()) return null;
     if (sourceLang === 'en' && isEnglishSqliteIntegrationEnabled()) return null;
+    if (sourceLang === 'ha' && isHausaSqliteIntegrationEnabled()) return null;
     return dictionaryDb.searchStandard(searchQuery.trim(), sourceLang);
   }, [dictionaryMode, searchQuery, sourceLang]);
 
   const standardResponse: StandardSearchResponse | null =
     dictionaryMode === 'standard' && sourceLang === 'en' && isEnglishSqliteIntegrationEnabled()
       ? asyncEnglishResponse
+      : dictionaryMode === 'standard' && sourceLang === 'ha' && isHausaSqliteIntegrationEnabled()
+      ? asyncHausaResponse
       : syncStandardResponse;
 
   // Engine 2: Multilingual Search

@@ -13,6 +13,9 @@ import {
   englishSqliteRepo,
   type EnglishBenchmarkReport,
 } from '../services/englishSqliteRepository';
+import { HAUSA_PACK_MANIFEST, isHausaSqliteIntegrationEnabled } from '../config/hausaDictionaryConfig';
+import { hausaPackService, type HausaPackStatus } from '../services/hausaPackService';
+import { hausaSqliteRepo, type HausaBenchmarkReport } from '../services/hausaSqliteRepository';
 import {
   getUiCopy,
   getContentCopy,
@@ -63,6 +66,18 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
   const [englishVerifyMsg, setEnglishVerifyMsg] = useState<string | null>(null);
   const [benchmarkReport, setBenchmarkReport] = useState<EnglishBenchmarkReport | null>(null);
   const [isRunningBenchmark, setIsRunningBenchmark] = useState(false);
+
+  const [hausaStatus, setHausaStatus] = useState<HausaPackStatus>(() =>
+    hausaPackService.getCachedStatus()
+  );
+  const [hausaProgress, setHausaProgress] = useState<PackInstallProgress>(() =>
+    hausaPackService.getCachedProgress()
+  );
+  const [hausaActionError, setHausaActionError] = useState<string | null>(null);
+  const [hausaVerifyMsg, setHausaVerifyMsg] = useState<string | null>(null);
+  const [hausaBenchmarkReport, setHausaBenchmarkReport] = useState<HausaBenchmarkReport | null>(null);
+  const [isRunningHausaBenchmark, setIsRunningHausaBenchmark] = useState(false);
+
   const [isBackupBusy, setIsBackupBusy] = useState(false);
   const [backupStatusMsg, setBackupStatusMsg] = useState<string | null>(null);
   const [backupErrorMsg, setBackupErrorMsg] = useState<string | null>(null);
@@ -71,12 +86,17 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
   const backupFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    const unsubStatus = englishPackService.subscribeStatus(setEnglishStatus);
-    const unsubProgress = englishPackService.subscribeProgress(setEnglishProgress);
+    const unsubStatusEn = englishPackService.subscribeStatus(setEnglishStatus);
+    const unsubProgressEn = englishPackService.subscribeProgress(setEnglishProgress);
+    const unsubStatusHa = hausaPackService.subscribeStatus(setHausaStatus);
+    const unsubProgressHa = hausaPackService.subscribeProgress(setHausaProgress);
     void englishPackService.refreshStatus();
+    void hausaPackService.refreshStatus();
     return () => {
-      unsubStatus();
-      unsubProgress();
+      unsubStatusEn();
+      unsubProgressEn();
+      unsubStatusHa();
+      unsubProgressHa();
     };
   }, []);
 
@@ -85,13 +105,20 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
 
   const liveStats = dictionaryDb.getLanguagePackStats();
   const sqliteEnEnabled = isEnglishSqliteIntegrationEnabled();
+  const sqliteHaEnabled = isHausaSqliteIntegrationEnabled();
   const isNativeAndroid = englishPackService.isNativeAndroid();
   const useSqliteEnglishCard = sqliteEnEnabled && (isNativeAndroid || englishStatus.installed);
+  const useSqliteHausaCard = sqliteHaEnabled && (isNativeAndroid || hausaStatus.installed);
 
   const totalInstalledBytes = Object.values(liveStats).reduce((sum, stat) => {
     if (stat.code === 'en' && useSqliteEnglishCard) {
       return englishStatus.installed
         ? sum + (englishStatus.dbSizeBytes || ENGLISH_PACK_MANIFEST.uncompressedSizeBytes)
+        : sum;
+    }
+    if (stat.code === 'ha' && useSqliteHausaCard) {
+      return hausaStatus.installed
+        ? sum + (hausaStatus.dbSizeBytes || HAUSA_PACK_MANIFEST.uncompressedSizeBytes)
         : sum;
     }
     return stat.isInstalled ? sum + stat.actualSizeBytes : sum;
@@ -102,6 +129,9 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
     if (s.code === 'en' && useSqliteEnglishCard) {
       return englishStatus.installed;
     }
+    if (s.code === 'ha' && useSqliteHausaCard) {
+      return hausaStatus.installed;
+    }
     return s.isInstalled;
   }).length;
 
@@ -109,6 +139,11 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
     if (s.code === 'en' && useSqliteEnglishCard) {
       return englishStatus.installed
         ? sum + (englishStatus.acceptedEntries || ENGLISH_PACK_MANIFEST.acceptedEntries)
+        : sum;
+    }
+    if (s.code === 'ha' && useSqliteHausaCard) {
+      return hausaStatus.installed
+        ? sum + (hausaStatus.acceptedEntries || HAUSA_PACK_MANIFEST.acceptedEntries)
         : sum;
     }
     return sum + s.loadedEntriesCount;
@@ -169,6 +204,64 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
       setEnglishActionError(err instanceof Error ? err.message : 'Benchmark failed.');
     } finally {
       setIsRunningBenchmark(false);
+    }
+  };
+
+  const handleInstallOrResumeHausa = async () => {
+    setHausaActionError(null);
+    setHausaVerifyMsg(null);
+    setDownloadingCode('ha');
+    try {
+      await hausaPackService.installPack();
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      if (code !== 'DOWNLOAD_CANCELLED') {
+        setHausaActionError(
+          err instanceof Error ? err.message : 'Unable to install offline Hausa SQLite pack.'
+        );
+      }
+    } finally {
+      setDownloadingCode(null);
+    }
+  };
+
+  const handleRemoveHausa = async () => {
+    setHausaActionError(null);
+    setHausaVerifyMsg(null);
+    setHausaBenchmarkReport(null);
+    setDownloadingCode('ha');
+    try {
+      await hausaPackService.removePack();
+    } catch (err) {
+      setHausaActionError(err instanceof Error ? err.message : 'Unable to remove Hausa pack.');
+    } finally {
+      setDownloadingCode(null);
+    }
+  };
+
+  const handleVerifyHausa = async () => {
+    setHausaActionError(null);
+    setHausaVerifyMsg(null);
+    try {
+      const verified = await hausaPackService.verifyInstalledPack();
+      setHausaVerifyMsg(
+        `SQLite quick_check OK · ${(verified.acceptedEntries || HAUSA_PACK_MANIFEST.acceptedEntries).toLocaleString()} entries verified.`
+      );
+    } catch (err) {
+      setHausaActionError(err instanceof Error ? err.message : 'Integrity verification failed.');
+    }
+  };
+
+  const handleRunHausaBenchmark = async () => {
+    setHausaActionError(null);
+    setIsRunningHausaBenchmark(true);
+    try {
+      const report = await hausaSqliteRepo.runBenchmark();
+      setHausaBenchmarkReport(report);
+    } catch (err) {
+      setHausaActionError(err instanceof Error ? err.message : 'Benchmark failed.');
+    } finally {
+      setIsRunningHausaBenchmark(false);
     }
   };
 
@@ -259,6 +352,14 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
       }
       return;
     }
+    if (code === 'ha' && useSqliteHausaCard) {
+      if (hausaStatus.installed) {
+        void handleRemoveHausa();
+      } else {
+        void handleInstallOrResumeHausa();
+      }
+      return;
+    }
     setDownloadingCode(code);
     setTimeout(() => {
       onTogglePack(code);
@@ -298,15 +399,22 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
         {LANGUAGE_LIST.map((lang) => {
           const stat = liveStats[lang.code];
           const isEnglishSqliteCard = lang.code === 'en' && useSqliteEnglishCard;
+          const isHausaSqliteCard = lang.code === 'ha' && useSqliteHausaCard;
           const pack = installedPacks[lang.code] || {
             code: lang.code,
             installed: stat.isInstalled,
             version: stat.datasetVersion,
             sizeMb: stat.actualSizeMb,
           };
-          const isInstalled = isEnglishSqliteCard ? englishStatus.installed : stat.isInstalled;
+          const isInstalled = isEnglishSqliteCard
+            ? englishStatus.installed
+            : isHausaSqliteCard
+            ? hausaStatus.installed
+            : stat.isInstalled;
           const displayVersion = isEnglishSqliteCard
             ? englishStatus.datasetVersion || ENGLISH_PACK_MANIFEST.packVersion
+            : isHausaSqliteCard
+            ? hausaStatus.datasetVersion || HAUSA_PACK_MANIFEST.packVersion
             : pack.version;
           const isEnglishCoreLayer =
             isEnglishSqliteCard &&
@@ -316,6 +424,10 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
             ? isInstalled
               ? englishStatus.acceptedEntries || ENGLISH_PACK_MANIFEST.acceptedEntries
               : ENGLISH_PACK_MANIFEST.acceptedEntries
+            : isHausaSqliteCard
+            ? isInstalled
+              ? hausaStatus.acceptedEntries || HAUSA_PACK_MANIFEST.acceptedEntries
+              : HAUSA_PACK_MANIFEST.acceptedEntries
             : stat.loadedEntriesCount;
           const displaySenses = isEnglishSqliteCard
             ? isEnglishCoreLayer
@@ -325,11 +437,17 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
               : isInstalled
                 ? englishStatus.totalSenses || ENGLISH_PACK_MANIFEST.totalSenses
                 : ENGLISH_PACK_MANIFEST.totalSenses
+            : isHausaSqliteCard
+            ? isInstalled
+              ? hausaStatus.totalSenses || HAUSA_PACK_MANIFEST.totalSenses
+              : HAUSA_PACK_MANIFEST.totalSenses
             : stat.sensesCount;
 
           const isExpanded = expandedLang === lang.code;
           const isDownloading =
-            downloadingCode === lang.code || (isEnglishSqliteCard && englishStatus.inProgress);
+            downloadingCode === lang.code ||
+            (isEnglishSqliteCard && englishStatus.inProgress) ||
+            (isHausaSqliteCard && hausaStatus.inProgress);
           const kbSize = Math.round(stat.actualSizeBytes / 1024);
           const enCompressedMb = (ENGLISH_PACK_MANIFEST.compressedSizeBytes / (1024 * 1024)).toFixed(2);
           const enUncompressedMb = (
@@ -338,6 +456,12 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
               : ENGLISH_PACK_MANIFEST.uncompressedSizeBytes) /
             (1024 * 1024)
           ).toFixed(2);
+          const haCompressedKb = (HAUSA_PACK_MANIFEST.compressedSizeBytes / 1024).toFixed(0);
+          const haUncompressedKb = (
+            (isInstalled && hausaStatus.dbSizeBytes
+              ? hausaStatus.dbSizeBytes
+              : HAUSA_PACK_MANIFEST.uncompressedSizeBytes) / 1024
+          ).toFixed(0);
           const hasPartialResume = isEnglishSqliteCard && !isInstalled && englishStatus.partialBytes > 0;
 
           return (
@@ -394,6 +518,10 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                         ? isInstalled
                           ? `${enUncompressedMb} MB offline`
                           : `${enCompressedMb} MB download · ${enUncompressedMb} MB offline`
+                        : isHausaSqliteCard
+                        ? isInstalled
+                          ? `${haUncompressedKb} KB offline`
+                          : `${haCompressedKb} KB download · ${haUncompressedKb} KB offline`
                         : `${kbSize} KB (${stat.actualSizeMb.toFixed(2)} MB)`}
                     </div>
                     <div
@@ -444,6 +572,8 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                             ? `Resume (${enCompressedMb} MB)`
                             : isEnglishSqliteCard
                               ? `Install (${enCompressedMb} MB)`
+                              : isHausaSqliteCard
+                              ? `Install (${haCompressedKb} KB)`
                               : copy.library.installPack}
                         </span>
                       </>
@@ -459,6 +589,18 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                     >
                       <Pause className="w-3.5 h-3.5" />
                       <span>Pause</span>
+                    </button>
+                  )}
+
+                  {isHausaSqliteCard && isDownloading && (
+                    <button
+                      type="button"
+                      onClick={() => void hausaPackService.cancelInstall()}
+                      className="h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800"
+                      title="Cancel download"
+                    >
+                      <Pause className="w-3.5 h-3.5" />
+                      <span>Cancel</span>
                     </button>
                   )}
 
@@ -505,6 +647,48 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                       <button
                         type="button"
                         onClick={() => void handleInstallOrResumeEnglish()}
+                        className="px-2.5 py-1 rounded-lg bg-rose-700 text-white text-[11px] font-semibold shrink-0 cursor-pointer"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Hausa SQLite Download / Extraction Progress & Error Strip */}
+              {isHausaSqliteCard && (isDownloading || hausaActionError || hausaStatus.error) && (
+                <div className="px-5 pb-4 space-y-2">
+                  {isDownloading && (
+                    <div className="p-3 rounded-2xl bg-[#EEF4F0] dark:bg-[#172B22] border border-[#204031]/20 dark:border-[#7E9E88]/30 space-y-1.5">
+                      <div className="flex items-center justify-between text-xs font-medium text-[#204031] dark:text-[#7E9E88]">
+                        <span>{hausaProgress.message || copy.library.updating}</span>
+                        <span dir="ltr" className="font-mono tabular-nums">
+                          {hausaProgress.percent}%
+                        </span>
+                      </div>
+                      <div className="w-full h-2 rounded-full bg-white dark:bg-[#101C16] overflow-hidden">
+                        <div
+                          className="h-full bg-[#204031] dark:bg-[#7E9E88] transition-all duration-200"
+                          style={{ width: `${Math.max(4, Math.min(100, hausaProgress.percent))}%` }}
+                        />
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums" dir="ltr">
+                        {(hausaProgress.processedBytes / 1024).toFixed(0)} KB /{' '}
+                        {(hausaProgress.totalBytes / 1024).toFixed(0)} KB
+                      </div>
+                    </div>
+                  )}
+
+                  {(hausaActionError || hausaStatus.error) && (
+                    <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 flex items-start justify-between gap-2 text-xs text-rose-800 dark:text-rose-200">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" />
+                        <span>{hausaActionError || hausaStatus.error}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleInstallOrResumeHausa()}
                         className="px-2.5 py-1 rounded-lg bg-rose-700 text-white text-[11px] font-semibold shrink-0 cursor-pointer"
                       >
                         Retry
@@ -617,6 +801,85 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                               Java Heap: {(benchmarkReport.memoryMetrics.javaHeapUsedBytes / (1024 * 1024)).toFixed(1)} MB | Native Heap: {(benchmarkReport.memoryMetrics.nativeHeapAllocatedBytes / (1024 * 1024)).toFixed(1)} MB
                             </div>
                           )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {isHausaSqliteCard && (
+                    <div className="p-3.5 rounded-2xl bg-[#F4EFE6] dark:bg-[#162720] border border-slate-200/80 dark:border-slate-800 space-y-2.5 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="font-bold text-slate-900 dark:text-slate-100">
+                            {HAUSA_PACK_MANIFEST.attribution.sourceName}
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {HAUSA_PACK_MANIFEST.attribution.license} · Pack v{HAUSA_PACK_MANIFEST.packVersion} ·{' '}
+                            {HAUSA_PACK_MANIFEST.distinctHeadwords.toLocaleString()} headwords ·{' '}
+                            {HAUSA_PACK_MANIFEST.totalWordForms?.toLocaleString()} word forms
+                          </div>
+                        </div>
+                        {hausaStatus.availableBytes > 0 && (
+                          <span dir="ltr" className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                            Free storage: {(hausaStatus.availableBytes / (1024 * 1024 * 1024)).toFixed(2)} GB
+                          </span>
+                        )}
+                      </div>
+
+                      {HAUSA_PACK_MANIFEST.extendedCompanion && (
+                        <div className="p-2.5 rounded-xl bg-white/80 dark:bg-[#101C16]/80 border border-slate-200/70 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300">
+                          <span className="font-semibold text-slate-800 dark:text-slate-100">
+                            Optional Extended Enrichment ({(HAUSA_PACK_MANIFEST.extendedCompanion.uncompressedSizeBytes / 1024).toFixed(0)} KB):
+                          </span>{' '}
+                          {hausaStatus.extendedInstalled
+                            ? 'Installed — secondary senses, examples & etymologies active.'
+                            : 'Not installed (optional). Core offline dictionary remains complete for exact, prefix, inflection & definition search without downloading Extended data.'}
+                        </div>
+                      )}
+
+                      {isInstalled && (
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => void handleVerifyHausa()}
+                            className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1F372C] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            <span>Verify SQLite</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={isRunningHausaBenchmark}
+                            onClick={() => void handleRunHausaBenchmark()}
+                            className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1F372C] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                          >
+                            <Gauge className="w-3.5 h-3.5" />
+                            <span>{isRunningHausaBenchmark ? 'Running Benchmark...' : 'Run Device Benchmark'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => void handleRemoveHausa()}
+                            className="px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 text-[11px] font-semibold text-rose-700 dark:text-rose-300 flex items-center gap-1.5 cursor-pointer ms-auto"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Remove Pack</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {hausaVerifyMsg && (
+                        <div className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                          {hausaVerifyMsg}
+                        </div>
+                      )}
+
+                      {hausaBenchmarkReport && (
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-[#101C16] border border-slate-200/80 dark:border-slate-800 text-[11px] font-mono space-y-1 text-slate-700 dark:text-slate-300" dir="ltr">
+                          <div>Exact: {hausaBenchmarkReport.exactHeadwordMs} ms | Prefix: {hausaBenchmarkReport.prefixQueryMs} ms</div>
+                          <div>FTS5: {hausaBenchmarkReport.ftsDefinitionMs} ms | Normalized: {hausaBenchmarkReport.normalizedQueryMs} ms</div>
+                          <div>Entries verified: {hausaBenchmarkReport.totalEntriesVerified.toLocaleString()}</div>
                         </div>
                       )}
                     </div>
