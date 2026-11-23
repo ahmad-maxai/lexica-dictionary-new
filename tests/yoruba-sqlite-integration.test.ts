@@ -1,5 +1,6 @@
 import assert from 'node:assert';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { YORUBA_PACK_MANIFEST, validateYorubaPackManifest } from '../src/config/yorubaDictionaryConfig';
 import { yorubaSqliteRepo, YorubaSqliteRepository } from '../src/services/yorubaSqliteRepository';
@@ -18,12 +19,43 @@ try {
   NodeDatabaseSync = null;
 }
 
+if (process.env.FORCE_NO_NODE_SQLITE === '1') {
+  NodeDatabaseSync = null;
+}
+
+function querySqlitePython<T = unknown>(dbPath: string, sql: string, params: unknown[] = [], attachPath?: string | null): T[] {
+  const py = `
+import json, sqlite3, sys
+payload = json.load(sys.stdin)
+db_path = payload["dbPath"]
+attach_path = payload.get("attachPath")
+sql_text = payload.get("sql", "").strip()
+conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+conn.row_factory = sqlite3.Row
+if attach_path:
+    conn.execute("ATTACH DATABASE ? AS ext;", (attach_path,))
+try:
+    cur = conn.execute(sql_text, payload.get("params", []))
+    rows = [dict(r) for r in cur.fetchall()]
+    print(json.dumps(rows))
+finally:
+    conn.close()
+`;
+  const out = execFileSync('python3', ['-c', py], {
+    input: JSON.stringify({ dbPath, attachPath, sql, params }),
+    encoding: 'utf8',
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  return JSON.parse(out) as T[];
+}
+
 class NodeSqliteExecutor {
   private db: InstanceType<NonNullable<typeof NodeDatabaseSync>> | null = null;
   private dbPath: string | null = null;
+  private attachedPath: string | null = null;
 
   public isOpen(): boolean {
-    return this.db !== null;
+    return this.db !== null || this.dbPath !== null;
   }
 
   public getDbPath(): string | null {
@@ -31,8 +63,9 @@ class NodeSqliteExecutor {
   }
 
   public async open(dbPath: string): Promise<void> {
-    if (!NodeDatabaseSync) throw new Error('node:sqlite DatabaseSync not available.');
-    this.db = new NodeDatabaseSync(dbPath, { readOnly: true });
+    if (NodeDatabaseSync) {
+      this.db = new NodeDatabaseSync(dbPath, { readOnly: true });
+    }
     this.dbPath = dbPath;
   }
 
@@ -42,12 +75,31 @@ class NodeSqliteExecutor {
       this.db = null;
     }
     this.dbPath = null;
+    this.attachedPath = null;
   }
 
   public async query<T = Record<string, unknown>>(statement: string, values: unknown[] = []): Promise<T[]> {
-    if (!this.db) throw new Error('Database not open.');
-    const stmt = this.db.prepare(statement);
-    return stmt.all(...values) as T[];
+    if (!this.isOpen() || !this.dbPath) throw new Error('Database not open.');
+    const upper = statement.trim().toUpperCase();
+    if (upper.startsWith('ATTACH') && values[0]) {
+      this.attachedPath = String(values[0]);
+      if (this.db) {
+        this.db.prepare(statement).all(...values);
+      }
+      return [] as T[];
+    }
+    if (upper.startsWith('DETACH')) {
+      this.attachedPath = null;
+      if (this.db) {
+        try { this.db.prepare(statement).all(...values); } catch { /* ignore */ }
+      }
+      return [] as T[];
+    }
+    if (this.db) {
+      const stmt = this.db.prepare(statement);
+      return stmt.all(...values) as T[];
+    }
+    return querySqlitePython<T>(this.dbPath, statement, values, this.attachedPath);
   }
 }
 
@@ -94,19 +146,22 @@ async function main() {
   });
 
   await runTest('Y.3 SQLite Database Integrity & Quick Check', () => {
-    if (!NodeDatabaseSync) {
-      console.log('Skipping node:sqlite quick_check (Node < 22.5)');
-      return;
-    }
-    const dbCore = new NodeDatabaseSync('lexica_yoruba_core.db', { readOnly: true });
-    const resCore = dbCore.prepare('PRAGMA quick_check;').all();
-    dbCore.close();
-    assert.strictEqual((resCore[0] as { quick_check: string }).quick_check, 'ok');
+    if (NodeDatabaseSync) {
+      const dbCore = new NodeDatabaseSync('lexica_yoruba_core.db', { readOnly: true });
+      const resCore = dbCore.prepare('PRAGMA quick_check;').all();
+      dbCore.close();
+      assert.strictEqual((resCore[0] as { quick_check: string }).quick_check, 'ok');
 
-    const dbExt = new NodeDatabaseSync('lexica_yoruba_extended.db', { readOnly: true });
-    const resExt = dbExt.prepare('PRAGMA quick_check;').all();
-    dbExt.close();
-    assert.strictEqual((resExt[0] as { quick_check: string }).quick_check, 'ok');
+      const dbExt = new NodeDatabaseSync('lexica_yoruba_extended.db', { readOnly: true });
+      const resExt = dbExt.prepare('PRAGMA quick_check;').all();
+      dbExt.close();
+      assert.strictEqual((resExt[0] as { quick_check: string }).quick_check, 'ok');
+    } else {
+      const resCore = querySqlitePython<{ quick_check: string }>('lexica_yoruba_core.db', 'PRAGMA quick_check;');
+      assert.strictEqual(resCore[0].quick_check, 'ok');
+      const resExt = querySqlitePython<{ quick_check: string }>('lexica_yoruba_extended.db', 'PRAGMA quick_check;');
+      assert.strictEqual(resExt[0].quick_check, 'ok');
+    }
   });
 
   await runTest('Y.4 Core-only and Extended Attachment Integration via Repository', async () => {
