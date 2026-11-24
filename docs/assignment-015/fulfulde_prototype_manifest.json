@@ -1,0 +1,103 @@
+{
+  "packId": "ff-lexica-schema-v4-proto",
+  "prototypeOnly": true,
+  "targetLanguage": "ff",
+  "primaryOrthography": "UNESCO Bamako (1966) / NERDC Nigerian Fulfulde Latin (ɓ, ɗ, ƴ, ŋ, ɲ, doubled long vowels)",
+  "schemaVersion": 4,
+  "packVersion": "0.1.0-proto-core",
+  "datasetVersion": "2026.11-fulfulde-audit-proto-v4",
+  "core": {
+    "filename": "lexica_fulfulde_core_proto.db.gz",
+    "compressedSizeBytes": 641319,
+    "compressedSha256": "a9245f0e498ac269d987f9e9e47182a2b0c97fa848905470df85dc70b3ab5fbe",
+    "uncompressedSizeBytes": 1949696,
+    "uncompressedSha256": "ce1febaeac894747b08dd6ad4b8559250547067062faaf8bd0c3c3ea18ed5c97",
+    "sqliteQuickCheck": "ok"
+  },
+  "extended": {
+    "filename": "lexica_fulfulde_extended_proto.db.gz",
+    "compressedSizeBytes": 270463,
+    "compressedSha256": "31f7e2fadab4214c82ebafb5f65785fdf85a390e2ac041421234b6f93ae952a5",
+    "uncompressedSizeBytes": 1163264,
+    "uncompressedSha256": "9234bda06f48a0654673bf90399840a8001d5175621e3bd4708a140513d85f52",
+    "sqliteQuickCheck": "ok"
+  },
+  "statistics": {
+    "acceptedEntries": 8380,
+    "distinctHeadwords": 7952,
+    "totalSenses": 9006,
+    "totalWordForms": 3129,
+    "entriesWithExamples": 186,
+    "entriesWithIpa": 106,
+    "entriesWithAdlamVariant": 118,
+    "orthographicVariantSets": 120,
+    "conflictCount": 321,
+    "wikidataDCaronNormalized": 83,
+    "definitionTypes": {
+      "english_gloss": 8310,
+      "bilingual_explanation": 70
+    },
+    "bySource": {
+      "wikidata-q33454": 6374,
+      "kaikki-en-wikt-ff": 1937,
+      "lexica-curated-ff": 69
+    },
+    "byDialectLabel": {
+      "Pan-Fulfulde": 7248,
+      "Pular (Futa Jallon)": 723,
+      "Pulaar (Futa Tooro)": 297,
+      "Pular (Futa Jallon), Pulaar (Futa Tooro)": 42,
+      "Fulfulde Standard": 68,
+      "Adamawa / Maasina Fulfulde": 1,
+      "Pular (Futa Jallon); Pulaar (Futa Tooro)": 1
+    },
+    "byVerificationStatus": {
+      "community_reviewed": 8029,
+      "human_verified": 69,
+      "conflict_flagged": 282
+    }
+  },
+  "benchmarksMs": {
+    "exactHeadwordLookup": 0.022,
+    "flexibleOrthographyLookup": 0.0244,
+    "fts5GlossMatch": 0.0371
+  },
+  "sources": [
+    {
+      "code": "lexica-curated-ff",
+      "name": "Lexica Curated Fulfulde Starter Corpus",
+      "license": "CC0 1.0 / Lexica Project License",
+      "attributionText": "Curated starter corpus authored for the LEXICA Multilingual Lexicography Project.",
+      "sourceUrl": "https://github.com/ahmad-maxai/lexica-dictionary-new"
+    },
+    {
+      "code": "kaikki-en-wikt-ff",
+      "name": "English Wiktionary Fula via Kaikki.org",
+      "license": "CC BY-SA 4.0 & GFDL",
+      "attributionText": "Copyright Wikimedia Contributors & Tatu Ylönen (Kaikki.org / Wiktextract). Licensed under CC BY-SA 4.0 & GFDL.",
+      "sourceUrl": "https://kaikki.org/dictionary/Fula/"
+    },
+    {
+      "code": "wikidata-q33454",
+      "name": "Wikidata Lexemes (Fula Q33454)",
+      "license": "CC0 1.0",
+      "attributionText": "Public domain structured lexeme data from Wikidata contributors (CC0 1.0).",
+      "sourceUrl": "https://www.wikidata.org/wiki/Wikidata:Lexicographical_data"
+    },
+    {
+      "code": "tatoeba-fuc",
+      "name": "Tatoeba Pulaar Sentence Corpus (fuc)",
+      "license": "CC BY 2.0 FR / CC BY 4.0",
+      "attributionText": "Pulaar example sentences contributed by Tatoeba Project contributors (CC BY 2.0 FR).",
+      "sourceUrl": "https://tatoeba.org/"
+    },
+    {
+      "code": "ff-wiktionary-incubator",
+      "name": "Fula Wiktionary & Wikimedia Incubator Audit",
+      "license": "CC BY-SA 4.0 & GFDL",
+      "attributionText": "ff.wiktionary.org is closed/non-existent; Incubator Wt/fuf holds 3 pages (0 Nigerian Fulfulde); 0 entries imported.",
+      "sourceUrl": "https://incubator.wikimedia.org/wiki/Wt/fuf"
+    }
+  ],
+  "buildElapsedSeconds": 2.91
+}

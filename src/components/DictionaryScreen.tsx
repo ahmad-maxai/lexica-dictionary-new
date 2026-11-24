@@ -40,6 +40,8 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { audioService } from '../services/audioService';
+import { SearchInputField } from './SearchInputField';
+import { insertTextAtCursor } from '../utils/searchInputUtils';
 
 interface DictionaryScreenProps {
   interfaceLang: LanguageCode;
@@ -433,10 +435,28 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
   };
 
   const handleInsertChar = (char: string) => {
-    setQuery((prev) => prev + char);
-    if (searchInputRef.current) {
-      searchInputRef.current.focus();
-    }
+    const inputEl = searchInputRef.current;
+    const selStart = inputEl?.selectionStart ?? null;
+    const selEnd = inputEl?.selectionEnd ?? null;
+
+    setQuery((prev) => {
+      const { nextValue, nextCursor } = insertTextAtCursor(prev, char, selStart, selEnd);
+      if (inputEl) {
+        const schedule =
+          typeof requestAnimationFrame === 'function'
+            ? requestAnimationFrame
+            : (fn: () => void) => setTimeout(fn, 0);
+        schedule(() => {
+          inputEl.focus();
+          try {
+            inputEl.setSelectionRange(nextCursor, nextCursor);
+          } catch {
+            // Ignore selection errors on unsupported elements
+          }
+        });
+      }
+      return nextValue;
+    });
   };
 
   const handleClearQuery = () => {
@@ -712,11 +732,10 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
         <form onSubmit={handleSearchSubmit} className="relative">
           <div className="relative flex items-center">
             <Search className="w-5 h-5 text-slate-400 absolute start-4 pointer-events-none" />
-            <input
+            <SearchInputField
               ref={searchInputRef}
-              type="text"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onValueChange={setQuery}
               placeholder={
                 dictionaryMode === 'standard'
                   ? formatText(copy.search.dictStandardPlaceholder, {
@@ -732,7 +751,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
               className={`w-full h-13 ps-12 pe-12 rounded-2xl bg-white dark:bg-[#15231D] border border-slate-200 dark:border-slate-800 text-sm sm:text-base font-medium text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-[#204031] dark:focus:border-[#7E9E88] shadow-sm transition-all ${
                 sourceMeta.direction === 'rtl' ? 'font-arabic' : 'font-sans'
               }`}
-              dir={!query ? (interfaceLang === 'ar' ? 'rtl' : 'ltr') : sourceMeta.direction}
+              direction={sourceMeta.direction}
             />
 
             {query && (

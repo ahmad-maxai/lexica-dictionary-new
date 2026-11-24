@@ -8,7 +8,7 @@
   "android": {
     "backgroundColor": "#FAF8F5",
     "allowMixedContent": false,
-    "captureInput": true,
+    "captureInput": false,
     "adjustMarginsForEdgeToEdge": "force"
   }
 }

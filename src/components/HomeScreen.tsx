@@ -19,6 +19,7 @@ import { isYorubaSqliteIntegrationEnabled } from '../config/yorubaDictionaryConf
 import { yorubaPackService, type YorubaPackStatus } from '../services/yorubaPackService';
 import { searchYorubaStandardUnified } from '../services/yorubaSearchCoordinator';
 import { audioService } from '../services/audioService';
+import { SearchInputField } from './SearchInputField';
 import {
   getUiCopy,
   getContentCopy,
@@ -436,11 +437,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <Search className="w-5 h-5" />
           </div>
 
-          <input
+          <SearchInputField
             ref={searchInputRef}
-            type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onValueChange={setSearchQuery}
             placeholder={
               dictionaryMode === 'standard'
                 ? formatText(copy.search.homeStandardPlaceholder, { lang: sourceName })
@@ -450,7 +450,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   })
             }
             className="w-full h-12 sm:h-14 px-3.5 text-base sm:text-lg font-medium text-slate-900 dark:text-slate-100 placeholder:text-slate-400 bg-transparent focus:outline-none"
-            dir={!searchQuery ? (interfaceLang === 'ar' ? 'rtl' : 'ltr') : sourceMeta.direction}
+            direction={sourceMeta.direction}
           />
 
           {searchQuery && (
