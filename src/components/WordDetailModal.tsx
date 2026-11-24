@@ -314,12 +314,16 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
               </div>
             )}
 
-            {/* Honest English-Gloss-Only Notice for Hausa */}
-            {word.sourceLang === 'ha' && word.isMonolingualSqlite && word.definitionType === 'english_gloss' && (
-              <div className="mt-3 p-2.5 rounded-xl bg-amber-50/90 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/40 text-[11px] text-amber-900 dark:text-amber-200">
-                English translation only — a verified human-authored Hausa-to-Hausa explanation is not yet available in open-licensed sources.
-              </div>
-            )}
+            {/* Honest English-Gloss-Only Notice for Hausa & Yoruba */}
+            {(word.sourceLang === 'ha' || word.sourceLang === 'yo') &&
+              word.isMonolingualSqlite &&
+              word.definitionType === 'english_gloss' && (
+                <div className="mt-3 p-2.5 rounded-xl bg-amber-50/90 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-900/40 text-[11px] text-amber-900 dark:text-amber-200">
+                  English translation only — a verified human-authored{' '}
+                  {word.sourceLang === 'yo' ? 'Yoruba-to-Yoruba' : 'Hausa-to-Hausa'} explanation is not yet available in
+                  open-licensed sources.
+                </div>
+              )}
 
             {/* Numbered Word Senses & Usage Notes */}
             <div className="mt-4 space-y-3">
@@ -329,6 +333,10 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                     word.sourceLang === 'ha' &&
                     word.isMonolingualSqlite &&
                     Boolean(sense.definitionHa);
+                  const hasSplitYoEn =
+                    word.sourceLang === 'yo' &&
+                    word.isMonolingualSqlite &&
+                    Boolean(sense.definitionYo);
                   return (
                     <div
                       key={sense.id}
@@ -349,10 +357,16 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                             ({getLocalizedPos(sense.partOfSpeech, interfaceLang)})
                           </span>
                         )}
-                        <span>{hasSplitHaEn ? sense.definitionHa : sense.definition}</span>
+                        <span>
+                          {hasSplitHaEn
+                            ? sense.definitionHa
+                            : hasSplitYoEn
+                              ? sense.definitionYo
+                              : sense.definition}
+                        </span>
                       </div>
 
-                      {hasSplitHaEn && sense.definitionEn && (
+                      {(hasSplitHaEn || hasSplitYoEn) && sense.definitionEn && (
                         <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">
                           <span className="font-semibold text-slate-700 dark:text-slate-300 me-1">English:</span>
                           {sense.definitionEn}
@@ -737,6 +751,11 @@ export const WordDetailModal: React.FC<WordDetailModalProps> = ({
                         {ver.definitionHa && (
                           <p className="text-xs text-slate-800 dark:text-slate-200">
                             <span className="font-semibold">HA:</span> {ver.definitionHa}
+                          </p>
+                        )}
+                        {ver.definitionYo && (
+                          <p className="text-xs text-slate-800 dark:text-slate-200">
+                            <span className="font-semibold">YO:</span> {ver.definitionYo}
                           </p>
                         )}
                         {ver.definitionEn && (

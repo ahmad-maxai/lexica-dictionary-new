@@ -68,9 +68,11 @@ export interface WordSense {
   partOfSpeech: string;
   definition: string;
   definitionHa?: string | null;
+  definitionYo?: string | null;
   definitionEn?: string | null;
   definitionType?:
     | 'hausa_monolingual'
+    | 'yoruba_monolingual'
     | 'english_gloss'
     | 'bilingual_explanation'
     | 'machine_generated'
@@ -138,6 +140,7 @@ export interface ConflictSourceVersion {
   sourceName: string;
   license: string;
   definitionHa?: string | null;
+  definitionYo?: string | null;
   definitionEn?: string | null;
   definitionType: string;
   verificationStatus: string;
@@ -168,9 +171,11 @@ export interface WordEntry {
   tonePattern?: string | null; // Yoruba, Hausa, Chinese tones
   definition: string;
   definitionHa?: string | null;
+  definitionYo?: string | null;
   definitionEn: string;
   definitionType?:
     | 'hausa_monolingual'
+    | 'yoruba_monolingual'
     | 'english_gloss'
     | 'bilingual_explanation'
     | 'machine_generated'
@@ -233,7 +238,7 @@ export interface StandardSearchResponse {
   hasMore?: boolean;
   offset?: number;
   limit?: number;
-  engineSource?: 'sqlite-en' | 'sqlite-ha' | 'starter-corpus' | 'web-preview-fallback';
+  engineSource?: 'sqlite-en' | 'sqlite-ha' | 'sqlite-yo' | 'starter-corpus' | 'web-preview-fallback';
 }
 
 export interface MultilingualSenseMatch {

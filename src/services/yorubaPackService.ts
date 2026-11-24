@@ -75,6 +75,11 @@ export class YorubaPackInstallError extends Error {
   }
 }
 
+function isValidInstalledNativeResponse(res: Partial<YorubaPackStatus> | null | undefined): boolean {
+  if (!res) return false;
+  return Boolean(res.installed) && Boolean(res.dbPath) && (res.acceptedEntries || 0) > 0;
+}
+
 class YorubaPackService {
   private static readonly PREF_STATUS_KEY = 'lexica_yoruba_pack_status_v4';
 
@@ -85,6 +90,7 @@ class YorubaPackService {
   private mockInstaller: YorubaPackInstallerNative | null = null;
   private statusLoaded = false;
   private statusLoadingPromise: Promise<YorubaPackStatus> | null = null;
+  private platformOverride: 'android' | 'web' | 'ios' | null = null;
 
   private currentStatus: YorubaPackStatus = {
     installed: false,
@@ -96,11 +102,11 @@ class YorubaPackService {
     datasetVersion: YORUBA_PACK_MANIFEST.datasetVersion,
     schemaVersion: YORUBA_PACK_MANIFEST.schemaVersion,
     packLayer: 'core',
-    acceptedEntries: YORUBA_PACK_MANIFEST.acceptedEntries,
-    distinctHeadwords: YORUBA_PACK_MANIFEST.distinctHeadwords,
-    totalSenses: YORUBA_PACK_MANIFEST.totalSenses,
-    corePrimarySenses: YORUBA_PACK_MANIFEST.corePrimarySenses,
-    totalWordForms: YORUBA_PACK_MANIFEST.totalWordForms,
+    acceptedEntries: 0,
+    distinctHeadwords: 0,
+    totalSenses: 0,
+    corePrimarySenses: 0,
+    totalWordForms: 0,
     extendedInstalled: false,
     extendedDbPath: '',
     extendedDbSizeBytes: 0,
@@ -118,10 +124,8 @@ class YorubaPackService {
 
   constructor() {
     this.restorePersistedStatus();
-    this.initNativeListener();
+    void this.initNativeListener();
   }
-
-  private platformOverride: 'android' | 'web' | 'ios' | null = null;
 
   public detectPlatform(): 'android' | 'web' | 'ios' {
     if (this.platformOverride) return this.platformOverride;
@@ -151,16 +155,49 @@ class YorubaPackService {
   }): void {
     if (overrides.platform !== undefined) {
       this.platformOverride = overrides.platform ?? null;
-      this.currentStatus.platform = this.detectPlatform();
     }
     if (overrides.nativeBridge !== undefined) {
-      this._injectMockInstaller(overrides.nativeBridge ?? null);
+      this.mockInstaller = overrides.nativeBridge ?? null;
     }
+    this.statusLoaded = false;
+    this.statusLoadingPromise = null;
+    this.currentStatus = {
+      ...this.currentStatus,
+      platform: this.detectPlatform(),
+    };
   }
 
-  private getInstaller(): YorubaPackInstallerNative {
-    if (this.mockInstaller) return this.mockInstaller;
-    return NativeYorubaPackInstaller;
+  public resetTestingOverrides(): void {
+    this.platformOverride = null;
+    this.mockInstaller = null;
+    this.statusLoaded = false;
+    this.statusLoadingPromise = null;
+    this.currentStatus = {
+      installed: false,
+      alreadyInstalled: false,
+      dbPath: '',
+      dbSizeBytes: 0,
+      partialBytes: 0,
+      availableBytes: 0,
+      inProgress: false,
+      datasetVersion: YORUBA_PACK_MANIFEST.datasetVersion,
+      schemaVersion: YORUBA_PACK_MANIFEST.schemaVersion,
+      packLayer: 'core',
+      acceptedEntries: 0,
+      distinctHeadwords: 0,
+      totalSenses: 0,
+      corePrimarySenses: 0,
+      totalWordForms: 0,
+      extendedInstalled: false,
+      extendedDbPath: '',
+      extendedDbSizeBytes: 0,
+      platform: this.detectPlatform(),
+      error: null,
+    };
+  }
+
+  private getNativePlugin(): YorubaPackInstallerNative {
+    return this.mockInstaller || NativeYorubaPackInstaller;
   }
 
   private restorePersistedStatus(): void {
@@ -172,60 +209,66 @@ class YorubaPackService {
         this.currentStatus = {
           ...this.currentStatus,
           ...parsed,
+          inProgress: false,
           platform: this.detectPlatform(),
         };
       }
     } catch {
-      // Ignore
+      // Ignore localStorage parse errors
     }
   }
 
   private persistStatus(): void {
     if (typeof window === 'undefined') return;
     try {
-      window.localStorage.setItem(
-        YorubaPackService.PREF_STATUS_KEY,
-        JSON.stringify(this.currentStatus)
-      );
+      const payload: Partial<YorubaPackStatus> = {
+        installed: this.currentStatus.installed,
+        dbPath: this.currentStatus.dbPath,
+        dbSizeBytes: this.currentStatus.dbSizeBytes,
+        datasetVersion: this.currentStatus.datasetVersion,
+        schemaVersion: this.currentStatus.schemaVersion,
+        packLayer: this.currentStatus.packLayer,
+        acceptedEntries: this.currentStatus.acceptedEntries,
+        distinctHeadwords: this.currentStatus.distinctHeadwords,
+        totalSenses: this.currentStatus.totalSenses,
+        corePrimarySenses: this.currentStatus.corePrimarySenses,
+        totalWordForms: this.currentStatus.totalWordForms,
+        extendedInstalled: this.currentStatus.extendedInstalled,
+        extendedDbPath: this.currentStatus.extendedDbPath,
+        extendedDbSizeBytes: this.currentStatus.extendedDbSizeBytes,
+      };
+      window.localStorage.setItem(YorubaPackService.PREF_STATUS_KEY, JSON.stringify(payload));
     } catch {
-      // Ignore
+      // Ignore quota errors
     }
   }
 
-  private initNativeListener(): void {
-    if (typeof window === 'undefined') return;
+  private async initNativeListener(): Promise<void> {
+    if ((!this.isNativeAndroid() && !this.mockInstaller) || this.nativeListenerHandle) return;
     try {
-      this.getInstaller()
-        .addListener('packInstallProgress', (p: PackInstallProgress) => {
-          this.currentProgress = p;
-          if (p.stage === 'error') {
-            this.currentStatus.inProgress = false;
-            this.currentStatus.error = p.message;
-            this.persistStatus();
-            this.notifyStatusListeners();
-          } else if (p.stage === 'installed') {
-            this.currentStatus.inProgress = false;
-            this.currentStatus.installed = true;
-            this.currentStatus.error = null;
-            this.persistStatus();
-            this.notifyStatusListeners();
-          }
-          this.notifyProgressListeners(p);
-        })
-        .then((handle) => {
-          this.nativeListenerHandle = handle;
-        })
-        .catch(() => {
-          // Native listener fallback for web/non-native
-        });
-    } catch {
-      // Ignore
+      this.nativeListenerHandle = await this.getNativePlugin().addListener(
+        'packInstallProgress',
+        (progress: PackInstallProgress) => {
+          this.currentProgress = progress;
+          this.notifyProgress(progress);
+        }
+      );
+    } catch (e) {
+      console.warn('Native Yoruba pack progress listener initialization failed:', e);
     }
+  }
+
+  public getCachedStatus(): YorubaPackStatus {
+    return { ...this.currentStatus };
+  }
+
+  public getCachedProgress(): PackInstallProgress {
+    return { ...this.currentProgress };
   }
 
   public subscribeStatus(listener: (status: YorubaPackStatus) => void): () => void {
     this.statusListeners.add(listener);
-    listener(this.currentStatus);
+    listener(this.getCachedStatus());
     return () => {
       this.statusListeners.delete(listener);
     };
@@ -233,88 +276,103 @@ class YorubaPackService {
 
   public subscribeProgress(listener: (progress: PackInstallProgress) => void): () => void {
     this.progressListeners.add(listener);
-    listener(this.currentProgress);
+    listener(this.getCachedProgress());
     return () => {
       this.progressListeners.delete(listener);
     };
   }
 
-  private notifyStatusListeners(): void {
-    for (const l of this.statusListeners) {
+  private notifyStatus(status: YorubaPackStatus): void {
+    this.statusListeners.forEach((l) => {
       try {
-        l(this.currentStatus);
-      } catch {
-        // Ignore
+        l(status);
+      } catch (e) {
+        console.error('Error in Yoruba pack status subscriber:', e);
       }
-    }
+    });
   }
 
-  private notifyProgressListeners(p: PackInstallProgress): void {
-    for (const l of this.progressListeners) {
+  private notifyProgress(progress: PackInstallProgress): void {
+    this.progressListeners.forEach((l) => {
       try {
-        l(p);
-      } catch {
-        // Ignore
+        l(progress);
+      } catch (e) {
+        console.error('Error in Yoruba pack progress subscriber:', e);
       }
-    }
+    });
   }
 
-  public async getStatus(forceRefresh = false): Promise<YorubaPackStatus> {
-    if (this.statusLoaded && !forceRefresh) {
-      return this.currentStatus;
-    }
-    if (this.statusLoadingPromise && !forceRefresh) {
-      return this.statusLoadingPromise;
-    }
-
-    this.statusLoadingPromise = (async () => {
-      try {
-        const platform = this.detectPlatform();
-        if (platform === 'android' && !this.mockInstaller) {
-          const res = await this.getInstaller().getPackStatus({
-            lang: 'yo',
-            packId: YORUBA_PACK_MANIFEST.packId,
-          });
-          if (res) {
-            this.currentStatus = {
-              ...this.currentStatus,
-              ...res,
-              platform,
-            };
-          }
-        } else if (this.mockInstaller) {
-          const res = await this.mockInstaller.getPackStatus({
-            lang: 'yo',
-            packId: YORUBA_PACK_MANIFEST.packId,
-          });
-          if (res) {
-            this.currentStatus = {
-              ...this.currentStatus,
-              ...res,
-              platform,
-            };
-          }
-        }
-      } catch (err) {
-        this.currentStatus.error = err instanceof Error ? err.message : String(err);
-      } finally {
-        this.statusLoaded = true;
-        this.statusLoadingPromise = null;
-        this.persistStatus();
-        this.notifyStatusListeners();
-      }
-      return this.currentStatus;
-    })();
-
+  public async ensureStatusLoaded(): Promise<YorubaPackStatus> {
+    if (this.statusLoaded) return this.getCachedStatus();
+    if (this.statusLoadingPromise) return this.statusLoadingPromise;
+    this.statusLoadingPromise = this.refreshStatus().finally(() => {
+      this.statusLoadingPromise = null;
+    });
     return this.statusLoadingPromise;
   }
 
+  public async getStatus(forceRefresh = false): Promise<YorubaPackStatus> {
+    return forceRefresh ? this.refreshStatus() : this.ensureStatusLoaded();
+  }
+
   public async refreshStatus(): Promise<YorubaPackStatus> {
-    return this.getStatus(true);
+    if (!this.isNativeAndroid() && !this.mockInstaller) {
+      this.statusLoaded = true;
+      return this.getCachedStatus();
+    }
+    try {
+      const nativeStatus = await this.getNativePlugin().getPackStatus({
+        lang: 'yo',
+        packId: YORUBA_PACK_MANIFEST.packId,
+      });
+      const validInstalled = isValidInstalledNativeResponse(nativeStatus);
+      this.currentStatus = {
+        ...this.currentStatus,
+        ...nativeStatus,
+        installed: validInstalled,
+        acceptedEntries: validInstalled ? (nativeStatus.acceptedEntries || 0) : 0,
+        distinctHeadwords: validInstalled ? (nativeStatus.distinctHeadwords || 0) : 0,
+        totalSenses: validInstalled ? (nativeStatus.totalSenses || 0) : 0,
+        corePrimarySenses: validInstalled ? (nativeStatus.corePrimarySenses || nativeStatus.acceptedEntries || 0) : 0,
+        totalWordForms: validInstalled ? (nativeStatus.totalWordForms || 0) : 0,
+        extendedInstalled: validInstalled && Boolean(nativeStatus.extendedInstalled),
+        extendedDbPath: validInstalled && nativeStatus.extendedInstalled ? (nativeStatus.extendedDbPath || '') : '',
+        extendedDbSizeBytes:
+          validInstalled && nativeStatus.extendedInstalled ? (nativeStatus.extendedDbSizeBytes || 0) : 0,
+        platform: this.detectPlatform(),
+        error: nativeStatus?.error ?? null,
+      };
+      this.statusLoaded = true;
+      this.persistStatus();
+      this.notifyStatus(this.getCachedStatus());
+      return this.getCachedStatus();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.currentStatus = {
+        ...this.currentStatus,
+        installed: false,
+        acceptedEntries: 0,
+        distinctHeadwords: 0,
+        totalSenses: 0,
+        extendedInstalled: false,
+        error: msg,
+      };
+      this.statusLoaded = true;
+      this.notifyStatus(this.getCachedStatus());
+      return this.getCachedStatus();
+    }
   }
 
   public async installCorePack(forceReinstall = false): Promise<YorubaPackStatus> {
-    const manifestVal = validateYorubaPackManifest(YORUBA_PACK_MANIFEST);
+    return this.installPack({ forceReinstall });
+  }
+
+  public async installPack(options: {
+    manifest?: Partial<YorubaPackManifest>;
+    forceReinstall?: boolean;
+  } = {}): Promise<YorubaPackStatus> {
+    const manifest = (options.manifest || YORUBA_PACK_MANIFEST) as YorubaPackManifest;
+    const manifestVal = validateYorubaPackManifest(manifest);
     if (!manifestVal.valid) {
       throw new YorubaPackInstallError(
         'INVALID_MANIFEST',
@@ -323,115 +381,152 @@ class YorubaPackService {
       );
     }
 
+    if (!options.forceReinstall) {
+      const current = this.statusLoaded ? this.getCachedStatus() : await this.ensureStatusLoaded();
+      if (
+        current.installed &&
+        current.datasetVersion === manifest.packVersion &&
+        (current.dbSizeBytes || 0) === manifest.uncompressedSizeBytes
+      ) {
+        return {
+          ...current,
+          alreadyInstalled: true,
+        };
+      }
+    }
+
+    await this.initNativeListener();
     if (this.beforeMutateDbHook) {
       await this.beforeMutateDbHook();
     }
 
-    this.currentStatus.inProgress = true;
-    this.currentStatus.error = null;
-    this.notifyStatusListeners();
+    this.currentStatus = { ...this.currentStatus, inProgress: true, error: null };
+    this.notifyStatus(this.getCachedStatus());
 
     this.currentProgress = {
       stage: 'downloading',
       processedBytes: 0,
-      totalBytes: YORUBA_PACK_MANIFEST.compressedSizeBytes,
+      totalBytes: manifest.compressedSizeBytes,
       percent: 0,
       message: 'Downloading Yoruba Core dictionary pack...',
     };
-    this.notifyProgressListeners(this.currentProgress);
+    this.notifyProgress(this.currentProgress);
 
     const platform = this.detectPlatform();
     try {
       if (platform === 'android' || this.mockInstaller) {
-        const installer = this.getInstaller();
-        const res = await installer.installPack({
+        const nativeRes = await this.getNativePlugin().installPack({
           lang: 'yo',
-          packId: YORUBA_PACK_MANIFEST.packId,
+          packId: manifest.packId,
           packLayer: 'core',
-          packVersion: YORUBA_PACK_MANIFEST.packVersion,
-          forceReinstall,
-          url: YORUBA_PACK_MANIFEST.downloadUrl,
-          compressedSha256: YORUBA_PACK_MANIFEST.compressedSha256,
-          uncompressedSha256: YORUBA_PACK_MANIFEST.uncompressedSha256,
-          compressedSizeBytes: YORUBA_PACK_MANIFEST.compressedSizeBytes,
-          uncompressedSizeBytes: YORUBA_PACK_MANIFEST.uncompressedSizeBytes,
+          packVersion: manifest.packVersion,
+          forceReinstall: Boolean(options.forceReinstall),
+          url: manifest.downloadUrl,
+          compressedSha256: manifest.compressedSha256,
+          uncompressedSha256: manifest.uncompressedSha256,
+          compressedSizeBytes: manifest.compressedSizeBytes,
+          uncompressedSizeBytes: manifest.uncompressedSizeBytes,
         });
+
+        if (!isValidInstalledNativeResponse(nativeRes)) {
+          throw new Error(
+            nativeRes?.error ||
+              'Native installer completed without returning a verified Yoruba SQLite database.'
+          );
+        }
 
         this.currentStatus = {
           ...this.currentStatus,
-          ...res,
+          ...nativeRes,
           installed: true,
           inProgress: false,
           error: null,
           platform,
         };
       } else {
-        // Web preview mock install simulation
-        await new Promise((r) => setTimeout(r, 600));
-        this.currentProgress = {
-          stage: 'extracting',
-          processedBytes: YORUBA_PACK_MANIFEST.compressedSizeBytes,
-          totalBytes: YORUBA_PACK_MANIFEST.compressedSizeBytes,
-          percent: 50,
-          message: 'Extracting Yoruba Core SQLite database...',
-        };
-        this.notifyProgressListeners(this.currentProgress);
-
-        await new Promise((r) => setTimeout(r, 600));
-        this.currentStatus.installed = true;
-        this.currentStatus.dbPath = 'web_simulated_yoruba_core.db';
-        this.currentStatus.dbSizeBytes = YORUBA_PACK_MANIFEST.uncompressedSizeBytes;
-        this.currentStatus.inProgress = false;
-        this.currentStatus.error = null;
+        throw new YorubaPackInstallError(
+          'NATIVE_ONLY',
+          'Yoruba SQLite pack installation is available on Android devices.'
+        );
       }
 
+      this.statusLoaded = true;
       this.currentProgress = {
         stage: 'installed',
-        processedBytes: YORUBA_PACK_MANIFEST.compressedSizeBytes,
-        totalBytes: YORUBA_PACK_MANIFEST.compressedSizeBytes,
+        processedBytes: manifest.compressedSizeBytes,
+        totalBytes: manifest.compressedSizeBytes,
         percent: 100,
         message: 'Yoruba Core offline dictionary installed successfully.',
       };
-      this.notifyProgressListeners(this.currentProgress);
+      this.notifyProgress(this.currentProgress);
+      this.persistStatus();
+      this.notifyStatus(this.getCachedStatus());
+      return this.getCachedStatus();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.currentStatus.inProgress = false;
-      this.currentStatus.error = msg;
+      this.currentStatus = {
+        ...this.currentStatus,
+        inProgress: false,
+        error: msg,
+      };
       this.currentProgress = {
         stage: 'error',
         processedBytes: 0,
-        totalBytes: YORUBA_PACK_MANIFEST.compressedSizeBytes,
+        totalBytes: manifest.compressedSizeBytes,
         percent: 0,
         message: `Yoruba install failed: ${msg}`,
       };
-      this.notifyProgressListeners(this.currentProgress);
-      throw new YorubaPackInstallError('INSTALL_FAILED', msg, { originalError: err });
-    } finally {
+      this.notifyProgress(this.currentProgress);
       this.persistStatus();
-      this.notifyStatusListeners();
+      this.notifyStatus(this.getCachedStatus());
+      if (err instanceof YorubaPackInstallError) {
+        throw err;
+      }
+      throw new YorubaPackInstallError('INSTALL_FAILED', msg, { originalError: err });
     }
-
-    return this.currentStatus;
   }
 
-  public async installExtendedPack(): Promise<YorubaPackStatus> {
+  public async installExtendedPack(options: { forceReinstall?: boolean } = {}): Promise<YorubaPackStatus> {
     const extInfo = YORUBA_PACK_MANIFEST.extendedCompanion;
     if (!extInfo || !extInfo.downloadUrl) {
       throw new YorubaPackInstallError('NO_EXTENDED_PACK', 'Extended companion pack is not available.');
     }
 
-    this.currentStatus.inProgress = true;
-    this.notifyStatusListeners();
+    const current = this.statusLoaded ? this.getCachedStatus() : await this.ensureStatusLoaded();
+    if (!current.installed) {
+      throw new YorubaPackInstallError(
+        'CORE_REQUIRED',
+        'Install Yoruba Core offline pack before installing Extended enrichment.'
+      );
+    }
+    if (
+      !options.forceReinstall &&
+      current.extendedInstalled &&
+      current.extendedDbSizeBytes === extInfo.uncompressedSizeBytes
+    ) {
+      return {
+        ...current,
+        alreadyInstalled: true,
+      };
+    }
+
+    await this.initNativeListener();
+    if (this.beforeMutateDbHook) {
+      await this.beforeMutateDbHook();
+    }
+
+    this.currentStatus = { ...this.currentStatus, inProgress: true, error: null };
+    this.notifyStatus(this.getCachedStatus());
 
     const platform = this.detectPlatform();
     try {
       if (platform === 'android' || this.mockInstaller) {
-        const installer = this.getInstaller();
-        const res = await installer.installPack({
+        const res = await this.getNativePlugin().installPack({
           lang: 'yo',
           packId: extInfo.packId,
           packLayer: 'extended',
           packVersion: extInfo.packVersion,
+          forceReinstall: Boolean(options.forceReinstall),
           url: extInfo.downloadUrl,
           compressedSha256: extInfo.compressedSha256,
           uncompressedSha256: extInfo.uncompressedSha256,
@@ -442,67 +537,189 @@ class YorubaPackService {
         this.currentStatus = {
           ...this.currentStatus,
           ...res,
-          extendedInstalled: true,
+          installed: Boolean(res.installed ?? true),
+          extendedInstalled: Boolean(res.extendedInstalled ?? true),
           inProgress: false,
           error: null,
+          platform,
         };
       } else {
-        await new Promise((r) => setTimeout(r, 800));
-        this.currentStatus.extendedInstalled = true;
-        this.currentStatus.extendedDbPath = 'web_simulated_yoruba_extended.db';
-        this.currentStatus.extendedDbSizeBytes = extInfo.uncompressedSizeBytes;
-        this.currentStatus.inProgress = false;
+        throw new YorubaPackInstallError(
+          'NATIVE_ONLY',
+          'Yoruba Extended pack installation is available on Android devices.'
+        );
       }
+
+      this.statusLoaded = true;
+      this.persistStatus();
+      this.notifyStatus(this.getCachedStatus());
+      return this.getCachedStatus();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.currentStatus.inProgress = false;
-      this.currentStatus.error = msg;
-      throw new YorubaPackInstallError('EXTENDED_INSTALL_FAILED', msg);
-    } finally {
+      this.currentStatus = {
+        ...this.currentStatus,
+        inProgress: false,
+        error: msg,
+      };
       this.persistStatus();
-      this.notifyStatusListeners();
+      this.notifyStatus(this.getCachedStatus());
+      if (err instanceof YorubaPackInstallError) {
+        throw err;
+      }
+      throw new YorubaPackInstallError('EXTENDED_INSTALL_FAILED', msg);
     }
+  }
 
-    return this.currentStatus;
+  public async removeExtendedPack(): Promise<YorubaPackStatus> {
+    try {
+      if (this.beforeMutateDbHook) {
+        await this.beforeMutateDbHook();
+      }
+      const res = await this.getNativePlugin().removePack({
+        lang: 'yo',
+        packId: YORUBA_PACK_MANIFEST.extendedCompanion?.packId || 'yo-lexica-schema-v4-extended',
+        packLayer: 'extended',
+      });
+      this.currentStatus = {
+        ...this.currentStatus,
+        availableBytes: res.availableBytes,
+        extendedInstalled: false,
+        extendedDbPath: '',
+        extendedDbSizeBytes: 0,
+        totalSenses: this.currentStatus.corePrimarySenses || this.currentStatus.acceptedEntries,
+        error: null,
+      };
+      this.persistStatus();
+      this.notifyStatus(this.getCachedStatus());
+      return this.getCachedStatus();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new YorubaPackInstallError('REMOVE_FAILED', msg);
+    }
+  }
+
+  public async verifyExtendedPack(): Promise<YorubaPackStatus> {
+    try {
+      const verified = await this.getNativePlugin().verifyInstalledPack({
+        lang: 'yo',
+        packId: YORUBA_PACK_MANIFEST.extendedCompanion?.packId || 'yo-lexica-schema-v4-extended',
+        packLayer: 'extended',
+      });
+      this.currentStatus = {
+        ...this.currentStatus,
+        ...verified,
+        extendedInstalled: Boolean(verified.extendedInstalled ?? true),
+        error: null,
+      };
+      this.persistStatus();
+      this.notifyStatus(this.getCachedStatus());
+      return this.getCachedStatus();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new YorubaPackInstallError('VERIFY_FAILED', msg);
+    }
+  }
+
+  public async cancelInstall(): Promise<{ cancelled: boolean }> {
+    try {
+      const res = await this.getNativePlugin().cancelInstall({
+        lang: 'yo',
+        packId: YORUBA_PACK_MANIFEST.packId,
+      });
+      this.currentStatus = { ...this.currentStatus, inProgress: false };
+      this.notifyStatus(this.getCachedStatus());
+      return res;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new YorubaPackInstallError('CANCEL_FAILED', msg);
+    }
   }
 
   public async removePack(packLayer: 'core' | 'extended' = 'core'): Promise<YorubaPackStatus> {
-    if (this.beforeMutateDbHook) {
-      await this.beforeMutateDbHook();
+    if (packLayer === 'extended') {
+      return this.removeExtendedPack();
     }
-
-    const platform = this.detectPlatform();
     try {
+      if (this.beforeMutateDbHook) {
+        await this.beforeMutateDbHook();
+      }
+      const platform = this.detectPlatform();
+      let availableBytes = this.currentStatus.availableBytes;
       if (platform === 'android' || this.mockInstaller) {
-        const installer = this.getInstaller();
-        await installer.removePack({
+        const res = await this.getNativePlugin().removePack({
           lang: 'yo',
-          packId: packLayer === 'core' ? YORUBA_PACK_MANIFEST.packId : YORUBA_PACK_MANIFEST.extendedCompanion?.packId,
-          packLayer,
+          packId: YORUBA_PACK_MANIFEST.packId,
+          packLayer: 'core',
         });
+        availableBytes = res.availableBytes;
       }
 
-      if (packLayer === 'core') {
-        this.currentStatus.installed = false;
-        this.currentStatus.dbPath = '';
-        this.currentStatus.dbSizeBytes = 0;
-        this.currentStatus.extendedInstalled = false;
-        this.currentStatus.extendedDbPath = '';
-        this.currentStatus.extendedDbSizeBytes = 0;
-      } else {
-        this.currentStatus.extendedInstalled = false;
-        this.currentStatus.extendedDbPath = '';
-        this.currentStatus.extendedDbSizeBytes = 0;
-      }
-      this.currentStatus.error = null;
-    } catch (err) {
-      this.currentStatus.error = err instanceof Error ? err.message : String(err);
-    } finally {
+      this.currentStatus = {
+        ...this.currentStatus,
+        installed: false,
+        dbPath: '',
+        dbSizeBytes: 0,
+        acceptedEntries: 0,
+        distinctHeadwords: 0,
+        totalSenses: 0,
+        corePrimarySenses: 0,
+        totalWordForms: 0,
+        availableBytes,
+        extendedInstalled: false,
+        extendedDbPath: '',
+        extendedDbSizeBytes: 0,
+        error: null,
+      };
       this.persistStatus();
-      this.notifyStatusListeners();
+      this.notifyStatus(this.getCachedStatus());
+      return this.getCachedStatus();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.currentStatus = { ...this.currentStatus, error: msg };
+      this.notifyStatus(this.getCachedStatus());
+      throw new YorubaPackInstallError('REMOVE_FAILED', msg);
     }
+  }
 
-    return this.currentStatus;
+  public async verifyInstalledPack(): Promise<YorubaPackStatus> {
+    try {
+      const verified = await this.getNativePlugin().verifyInstalledPack({
+        lang: 'yo',
+        packId: YORUBA_PACK_MANIFEST.packId,
+        packLayer: 'core',
+      });
+      const valid = isValidInstalledNativeResponse(verified);
+      if (!valid) {
+        throw new Error('Verified Yoruba database returned empty or invalid summary.');
+      }
+      this.currentStatus = {
+        ...this.currentStatus,
+        ...verified,
+        installed: true,
+        error: null,
+      };
+      this.persistStatus();
+      this.notifyStatus(this.getCachedStatus());
+      return this.getCachedStatus();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new YorubaPackInstallError('VERIFY_FAILED', msg);
+    }
+  }
+
+  public async getMemoryMetrics(): Promise<DeviceMemoryMetrics> {
+    try {
+      return await this.getNativePlugin().getMemoryMetrics();
+    } catch {
+      return {
+        javaHeapUsedBytes: 0,
+        javaHeapMaxBytes: 0,
+        nativeHeapAllocatedBytes: 0,
+        systemAvailMemBytes: 0,
+        systemTotalMemBytes: 0,
+        lowMemory: false,
+      };
+    }
   }
 }
 

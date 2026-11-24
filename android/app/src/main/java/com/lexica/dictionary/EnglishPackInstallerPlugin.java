@@ -98,6 +98,13 @@ public class EnglishPackInstallerPlugin extends Plugin {
         return "ha".equalsIgnoreCase(lang) || (packId != null && packId.startsWith("ha-"));
     }
 
+    private boolean isYoruba(PluginCall call) {
+        if (call == null) return false;
+        String lang = call.getString("lang", "");
+        String packId = call.getString("packId", "");
+        return "yo".equalsIgnoreCase(lang) || (packId != null && packId.startsWith("yo-"));
+    }
+
     private boolean isExtendedLayer(PluginCall call) {
         if (call == null) return false;
         String layer = call.getString("packLayer", "core");
@@ -105,11 +112,15 @@ public class EnglishPackInstallerPlugin extends Plugin {
     }
 
     private String getPackDisplayLabel(PluginCall call) {
-        return isHausa(call) ? "Hausa" : "English";
+        if (isHausa(call)) return "Hausa";
+        if (isYoruba(call)) return "Yoruba";
+        return "English";
     }
 
     private File getActiveDb(File dir, PluginCall call) {
-        return new File(dir, isHausa(call) ? "lexica_hausaSQLite.db" : ACTIVE_DB_NAME);
+        if (isHausa(call)) return new File(dir, "lexica_hausaSQLite.db");
+        if (isYoruba(call)) return new File(dir, "lexica_yorubaSQLite.db");
+        return new File(dir, ACTIVE_DB_NAME);
     }
 
     private File getTargetDb(File dir, PluginCall call) {
@@ -121,34 +132,52 @@ public class EnglishPackInstallerPlugin extends Plugin {
 
     private File getTmpDb(File dir, PluginCall call) {
         if (isExtendedLayer(call)) {
-            return new File(dir, isHausa(call) ? "lexica_hausa_extended.db.tmp" : "lexica_english_extended.db.tmp");
+            if (isHausa(call)) return new File(dir, "lexica_hausa_extended.db.tmp");
+            if (isYoruba(call)) return new File(dir, "lexica_yoruba_extended.db.tmp");
+            return new File(dir, "lexica_english_extended.db.tmp");
         }
-        return new File(dir, isHausa(call) ? "lexica_hausaSQLite.db.tmp" : TMP_DB_NAME);
+        if (isHausa(call)) return new File(dir, "lexica_hausaSQLite.db.tmp");
+        if (isYoruba(call)) return new File(dir, "lexica_yorubaSQLite.db.tmp");
+        return new File(dir, TMP_DB_NAME);
     }
 
     private File getBakDb(File dir, PluginCall call) {
         if (isExtendedLayer(call)) {
-            return new File(dir, isHausa(call) ? "lexica_hausa_extended.db.bak" : "lexica_english_extended.db.bak");
+            if (isHausa(call)) return new File(dir, "lexica_hausa_extended.db.bak");
+            if (isYoruba(call)) return new File(dir, "lexica_yoruba_extended.db.bak");
+            return new File(dir, "lexica_english_extended.db.bak");
         }
-        return new File(dir, isHausa(call) ? "lexica_hausaSQLite.db.bak" : BACKUP_DB_NAME);
+        if (isHausa(call)) return new File(dir, "lexica_hausaSQLite.db.bak");
+        if (isYoruba(call)) return new File(dir, "lexica_yorubaSQLite.db.bak");
+        return new File(dir, BACKUP_DB_NAME);
     }
 
     private File getPartGz(File dir, PluginCall call) {
         if (isExtendedLayer(call)) {
-            return new File(dir, isHausa(call) ? "lexica_hausa_extended.db.gz.part" : "lexica_english_extended.db.gz.part");
+            if (isHausa(call)) return new File(dir, "lexica_hausa_extended.db.gz.part");
+            if (isYoruba(call)) return new File(dir, "lexica_yoruba_extended.db.gz.part");
+            return new File(dir, "lexica_english_extended.db.gz.part");
         }
-        return new File(dir, isHausa(call) ? "lexica_hausa.db.gz.part" : PART_GZ_NAME);
+        if (isHausa(call)) return new File(dir, "lexica_hausa.db.gz.part");
+        if (isYoruba(call)) return new File(dir, "lexica_yoruba.db.gz.part");
+        return new File(dir, PART_GZ_NAME);
     }
 
     private File getMetaFile(File dir, PluginCall call) {
         if (isExtendedLayer(call)) {
-            return new File(dir, isHausa(call) ? "lexica_hausa_extended.db.gz.meta.json" : "lexica_english_extended.db.gz.meta.json");
+            if (isHausa(call)) return new File(dir, "lexica_hausa_extended.db.gz.meta.json");
+            if (isYoruba(call)) return new File(dir, "lexica_yoruba_extended.db.gz.meta.json");
+            return new File(dir, "lexica_english_extended.db.gz.meta.json");
         }
-        return new File(dir, isHausa(call) ? "lexica_hausa.db.gz.meta.json" : META_FILE_NAME);
+        if (isHausa(call)) return new File(dir, "lexica_hausa.db.gz.meta.json");
+        if (isYoruba(call)) return new File(dir, "lexica_yoruba.db.gz.meta.json");
+        return new File(dir, META_FILE_NAME);
     }
 
     private File getExtendedDb(File dir, PluginCall call) {
-        return new File(dir, isHausa(call) ? "lexica_hausa_extended.db" : EXTENDED_DB_NAME);
+        if (isHausa(call)) return new File(dir, "lexica_hausa_extended.db");
+        if (isYoruba(call)) return new File(dir, "lexica_yoruba_extended.db");
+        return new File(dir, EXTENDED_DB_NAME);
     }
 
     @PluginMethod
@@ -167,13 +196,16 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 res.put("inProgress", installInProgress.get());
 
                 if (activeDb.exists() && activeDb.length() > 0) {
-                    res.put("installed", true);
                     res.put("dbSizeBytes", activeDb.length());
                     try {
-                        JSObject meta = readDbSummary(activeDb);
+                        JSObject meta = validateStagingDatabase(activeDb);
+                        res.put("installed", meta.optInt("accepted_entries", 0) > 0);
                         populateLayerSummary(res, meta, dir);
                     } catch (Exception dbErr) {
                         res.put("installed", false);
+                        res.put("extendedInstalled", false);
+                        res.put("extendedDbPath", "");
+                        res.put("extendedDbSizeBytes", 0L);
                         res.put("error", dbErr.getMessage());
                     }
                 } else {
@@ -232,7 +264,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
         }
 
         if (!installInProgress.compareAndSet(false, true)) {
-            call.reject("INSTALL_IN_PROGRESS: Another English pack installation is already running.", "INSTALL_IN_PROGRESS");
+            call.reject("INSTALL_IN_PROGRESS: Another dictionary pack installation is already running.", "INSTALL_IN_PROGRESS");
             return;
         }
         cancelRequested.set(false);
@@ -304,8 +336,8 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 }
 
                 // Step 2: Resumable streaming download with HTTP Range + ETag validation
-                emitProgress("downloading", existingPartBytes, compressedSizeBytes, "Preparing download...");
-                downloadWithResume(downloadUrl, compressedSizeBytes, partGz, metaFile);
+                emitProgress("downloading", existingPartBytes, compressedSizeBytes, "Preparing " + label + " download...");
+                downloadWithResume(downloadUrl, compressedSizeBytes, partGz, metaFile, label);
 
                 if (cancelRequested.get()) {
                     call.reject("Download paused. Partial file kept for safe resume.", "DOWNLOAD_CANCELLED");
@@ -969,7 +1001,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
         notifyListeners("packInstallProgress", data);
     }
 
-    private void downloadWithResume(String initialUrl, long expectedTotalBytes, File partFile, File metaFile)
+    private void downloadWithResume(String initialUrl, long expectedTotalBytes, File partFile, File metaFile, String label)
             throws Exception {
         long existingLen = partFile.exists() ? partFile.length() : 0L;
         if (existingLen == expectedTotalBytes) {
@@ -1068,7 +1100,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
                     long now = System.currentTimeMillis();
                     if (now - lastEmitMs >= 200 || downloaded >= expectedTotalBytes) {
                         lastEmitMs = now;
-                        emitProgress("downloading", downloaded, expectedTotalBytes, "Downloading English dictionary pack...");
+                        emitProgress("downloading", downloaded, expectedTotalBytes, "Downloading " + label + " dictionary pack...");
                     }
                 }
                 out.getFD().sync();
@@ -1195,13 +1227,32 @@ public class EnglishPackInstallerPlugin extends Plugin {
         int acceptedEntries = metaSummary.optInt("accepted_entries", 0);
         target.put("acceptedEntries", acceptedEntries);
         target.put("distinctHeadwords", metaSummary.optInt("distinct_headwords", 0));
-        target.put("totalSenses", metaSummary.optInt("total_senses", 0));
-        target.put("corePrimarySenses", metaSummary.optInt("core_primary_senses", acceptedEntries));
+        int corePrimarySenses = metaSummary.optInt("core_primary_senses", acceptedEntries);
+        target.put("corePrimarySenses", corePrimarySenses);
         target.put("totalWordForms", metaSummary.optInt("total_word_forms", 0));
 
-        boolean isHa = target.optString("dbPath", "").contains("hausa");
-        File extDb = new File(packsDir, isHa ? "lexica_hausa_extended.db" : EXTENDED_DB_NAME);
-        boolean extInstalled = extDb.exists() && extDb.length() > 0L;
+        String dbPath = target.optString("dbPath", "");
+        boolean isHa = dbPath.contains("hausa");
+        boolean isYo = dbPath.contains("yoruba");
+        File extDb = new File(
+            packsDir,
+            isHa ? "lexica_hausa_extended.db" : (isYo ? "lexica_yoruba_extended.db" : EXTENDED_DB_NAME)
+        );
+        boolean extInstalled = false;
+        int resolvedTotalSenses = "core".equals(packLayer) ? corePrimarySenses : metaSummary.optInt("total_senses", corePrimarySenses);
+        if (extDb.exists() && extDb.length() > 0L) {
+            try {
+                JSObject extSummary = validateExtendedDatabase(extDb);
+                int extSenses = extSummary.optInt("total_senses", 0);
+                if (extSenses > 0) {
+                    resolvedTotalSenses = extSenses;
+                }
+                extInstalled = true;
+            } catch (Exception ignored) {
+                extInstalled = false;
+            }
+        }
+        target.put("totalSenses", resolvedTotalSenses);
         target.put("extendedInstalled", extInstalled);
         target.put("extendedDbPath", extInstalled ? extDb.getAbsolutePath() : "");
         target.put("extendedDbSizeBytes", extInstalled ? extDb.length() : 0L);
@@ -1221,7 +1272,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 null
             )) {
                 if (!tables.moveToFirst() || tables.getInt(0) < 5) {
-                    throw new IOException("Missing required English dictionary base tables");
+                    throw new IOException("Missing required dictionary base tables");
                 }
             }
             boolean hasSensesTable = false;
@@ -1243,7 +1294,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
             }
             try (Cursor countCur = db.rawQuery("SELECT COUNT(*) FROM entries;", null)) {
                 if (!countCur.moveToFirst() || countCur.getInt(0) <= 0) {
-                    throw new IOException("English dictionary entries table is empty");
+                    throw new IOException("Dictionary entries table is empty");
                 }
             }
             if (!hasSensesTable && hasPosTable) {
@@ -1252,7 +1303,7 @@ public class EnglishPackInstallerPlugin extends Plugin {
                     null
                 )) {
                     if (!defCur.moveToFirst() || defCur.getInt(0) <= 0) {
-                        throw new IOException("Core English dictionary entries lack primary definitions");
+                        throw new IOException("Core dictionary entries lack primary definitions");
                     }
                 }
             }
@@ -1306,6 +1357,25 @@ public class EnglishPackInstallerPlugin extends Plugin {
         }
     }
 
+    private boolean tableExists(SQLiteDatabase db, String tableName) {
+        try (Cursor c = db.rawQuery(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?;",
+            new String[] { tableName }
+        )) {
+            return c.moveToFirst() && c.getInt(0) > 0;
+        }
+    }
+
+    private int queryIntScalar(SQLiteDatabase db, String sql) {
+        try (Cursor c = db.rawQuery(sql, null)) {
+            if (c.moveToFirst()) {
+                return c.getInt(0);
+            }
+        } catch (Exception ignored) {
+        }
+        return 0;
+    }
+
     private JSObject readDbSummaryFromOpenDb(SQLiteDatabase db) {
         JSObject obj = new JSObject();
         try (Cursor c = db.rawQuery("SELECT key, value FROM metadata;", null)) {
@@ -1326,6 +1396,37 @@ public class EnglishPackInstallerPlugin extends Plugin {
                 } else {
                     obj.put(k, v);
                 }
+            }
+        }
+
+        // Always compute live SQLite table counts as source of truth alongside metadata
+        if (tableExists(db, "entries")) {
+            int liveEntries = queryIntScalar(db, "SELECT COUNT(*) FROM entries;");
+            int liveDistinct = queryIntScalar(db, "SELECT COUNT(DISTINCT headword_lower) FROM entries;");
+            obj.put("accepted_entries", liveEntries);
+            if (liveDistinct > 0) {
+                obj.put("distinct_headwords", liveDistinct);
+            }
+            if (tableExists(db, "senses")) {
+                int liveSenses = queryIntScalar(db, "SELECT COUNT(*) FROM senses;");
+                if (liveSenses > 0) {
+                    obj.put("total_senses", liveSenses);
+                }
+            } else {
+                obj.put("core_primary_senses", liveEntries);
+                if (obj.optInt("total_senses", 0) <= 0) {
+                    obj.put("total_senses", liveEntries);
+                }
+            }
+        }
+        if (tableExists(db, "word_forms")) {
+            int liveForms = queryIntScalar(db, "SELECT COUNT(*) FROM word_forms;");
+            obj.put("total_word_forms", liveForms);
+        }
+        if (tableExists(db, "senses_ext")) {
+            int liveExtSenses = queryIntScalar(db, "SELECT COUNT(*) FROM senses_ext;");
+            if (liveExtSenses > 0) {
+                obj.put("total_senses", liveExtSenses);
             }
         }
         return obj;

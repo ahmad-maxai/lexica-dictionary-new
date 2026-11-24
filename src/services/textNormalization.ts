@@ -66,6 +66,47 @@ export class TextNormalization {
   }
 
   /**
+   * Normalizes Yoruba orthography in three distinct tiers:
+   * - exact: NFC lowercase preserving all tone marks (à, á, è, é, ẹ̀, ẹ́, ọ̀, ọ́, ǹ, ń, etc.) and under-dots (ẹ, ọ, ṣ)
+   * - toneInsensitive: strips High/Low tone marks while preserving under-dots (ẹ, ọ, ṣ)
+   * - ascii: strips both tone marks and under-dots to plain ASCII (e, o, s)
+   */
+  public static normalizeYoruba(text: string): {
+    exact: string;
+    toneInsensitive: string;
+    ascii: string;
+    hasToneMarks: boolean;
+    hasUnderDots: boolean;
+  } {
+    if (!text) {
+      return {
+        exact: '',
+        toneInsensitive: '',
+        ascii: '',
+        hasToneMarks: false,
+        hasUnderDots: false,
+      };
+    }
+    const exact = text.normalize('NFC').toLowerCase().trim();
+    const decomposed = exact.normalize('NFD');
+    const hasToneMarks = /[\u0300\u0301\u0302\u0304\u030C]/.test(decomposed);
+    const hasUnderDots = /\u0323/.test(decomposed) || /[ẹọṣ]/.test(exact);
+
+    const toneInsensitive = decomposed
+      .replace(/[\u0300\u0301\u0302\u0304\u030C]/g, '')
+      .normalize('NFC')
+      .trim();
+
+    const ascii = decomposed
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[’'ʽ‘`]/g, '')
+      .normalize('NFC')
+      .trim();
+
+    return { exact, toneInsensitive, ascii, hasToneMarks, hasUnderDots };
+  }
+
+  /**
    * Checks whether a candidate string contains query as a whole word (boundary-safe).
    */
   public static containsWholeWord(text: string | null | undefined, query: string): boolean {

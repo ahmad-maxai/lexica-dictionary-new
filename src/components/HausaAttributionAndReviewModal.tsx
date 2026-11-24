@@ -10,7 +10,9 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { HAUSA_PACK_MANIFEST } from '../config/hausaDictionaryConfig';
+import { YORUBA_PACK_MANIFEST } from '../config/yorubaDictionaryConfig';
 import { hausaSqliteRepo } from '../services/hausaSqliteRepository';
+import { yorubaSqliteRepo } from '../services/yorubaSqliteRepository';
 import {
   hausaConflictReviewService,
   type ConflictReviewDecision,
@@ -24,6 +26,7 @@ interface HausaAttributionAndReviewModalProps {
   onClose: () => void;
   initialTab?: 'sources' | 'conflicts';
   focusEntry?: WordEntry | null;
+  language?: 'ha' | 'yo';
 }
 
 const DECISION_OPTIONS: Array<{ value: ConflictReviewDecision; label: string }> = [
@@ -46,7 +49,11 @@ export const HausaAttributionAndReviewModal: React.FC<HausaAttributionAndReviewM
   onClose,
   initialTab = 'sources',
   focusEntry = null,
+  language = 'ha',
 }) => {
+  const isYoruba = language === 'yo';
+  const manifest = isYoruba ? YORUBA_PACK_MANIFEST : HAUSA_PACK_MANIFEST;
+  const langLabel = isYoruba ? 'Yoruba' : 'Hausa';
   const [activeTab, setActiveTab] = useState<'sources' | 'conflicts'>(initialTab);
   const [queueTotal, setQueueTotal] = useState(0);
   const [queueItems, setQueueItems] = useState<HausaConflictReviewRecord[]>([]);
@@ -69,8 +76,11 @@ export const HausaAttributionAndReviewModal: React.FC<HausaAttributionAndReviewM
     const loadQueue = async () => {
       setIsLoadingQueue(true);
       try {
-        if (hausaSqliteRepo.isPackActive()) {
-          const res = await hausaSqliteRepo.getConflictReviewQueue(40, 0);
+        const repoActive = isYoruba ? yorubaSqliteRepo.isPackActive() : hausaSqliteRepo.isPackActive();
+        if (repoActive) {
+          const res = isYoruba
+            ? await yorubaSqliteRepo.getConflictReviewQueue(40, 0)
+            : await hausaSqliteRepo.getConflictReviewQueue(40, 0);
           if (!cancelled) {
             setQueueTotal(res.totalCount);
             setQueueItems(res.items);
@@ -84,7 +94,9 @@ export const HausaAttributionAndReviewModal: React.FC<HausaAttributionAndReviewM
             }
           }
         } else {
-          const recorded = hausaConflictReviewService.getAllRecordedReviews();
+          const recorded = hausaConflictReviewService
+            .getAllRecordedReviews()
+            .filter((r) => (isYoruba ? r.entryId.startsWith('yo-') : r.entryId.startsWith('ha-')));
           const focusRec = focusEntry ? hausaConflictReviewService.getReviewForEntry(focusEntry) : null;
           const merged = focusRec
             ? [focusRec, ...recorded.filter((r) => r.entryId !== focusRec.entryId)]
@@ -103,7 +115,9 @@ export const HausaAttributionAndReviewModal: React.FC<HausaAttributionAndReviewM
         }
       } catch {
         if (!cancelled) {
-          const recorded = hausaConflictReviewService.getAllRecordedReviews();
+          const recorded = hausaConflictReviewService
+            .getAllRecordedReviews()
+            .filter((r) => (isYoruba ? r.entryId.startsWith('yo-') : r.entryId.startsWith('ha-')));
           setQueueTotal(recorded.length);
           setQueueItems(recorded);
         }
@@ -116,7 +130,7 @@ export const HausaAttributionAndReviewModal: React.FC<HausaAttributionAndReviewM
     return () => {
       cancelled = true;
     };
-  }, [isOpen, activeTab, focusEntry]);
+  }, [isOpen, activeTab, focusEntry, isYoruba]);
 
   if (!isOpen) return null;
 
@@ -161,11 +175,13 @@ export const HausaAttributionAndReviewModal: React.FC<HausaAttributionAndReviewM
           <div>
             <h2 className="text-base font-bold flex items-center gap-2">
               <Scale className="w-4 h-4 text-[#204031] dark:text-[#7E9E88]" />
-              <span>Hausa Pack Attribution &amp; QA Review</span>
+              <span>{langLabel} Pack Attribution &amp; QA Review</span>
             </h2>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-              Schema v{HAUSA_PACK_MANIFEST.schemaVersion} · {HAUSA_PACK_MANIFEST.acceptedEntries.toLocaleString()} entries ·{' '}
-              {(HAUSA_PACK_MANIFEST.hausaMonolingualCount || 0) + (HAUSA_PACK_MANIFEST.bilingualExplanationCount || 0)} with Hausa explanations
+              Schema v{manifest.schemaVersion} · {manifest.acceptedEntries.toLocaleString()} entries ·{' '}
+              {isYoruba
+                ? `${(YORUBA_PACK_MANIFEST.yorubaMonolingualCount || 0) + (YORUBA_PACK_MANIFEST.bilingualExplanationCount || 0)} with Yoruba explanations`
+                : `${(HAUSA_PACK_MANIFEST.hausaMonolingualCount || 0) + (HAUSA_PACK_MANIFEST.bilingualExplanationCount || 0)} with Hausa explanations`}
             </p>
           </div>
           <button
@@ -189,7 +205,7 @@ export const HausaAttributionAndReviewModal: React.FC<HausaAttributionAndReviewM
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
             }`}
           >
-            Sources &amp; Licensing ({HAUSA_PACK_MANIFEST.sourceAttributions.length})
+            Sources &amp; Licensing ({manifest.sourceAttributions.length})
           </button>
           <button
             type="button"
@@ -202,7 +218,7 @@ export const HausaAttributionAndReviewModal: React.FC<HausaAttributionAndReviewM
           >
             <AlertTriangle className="w-3.5 h-3.5" />
             <span>
-              Conflict Review Queue ({(queueTotal || HAUSA_PACK_MANIFEST.conflictCount || 0).toLocaleString()})
+              Conflict Review Queue ({(queueTotal || manifest.conflictCount || 0).toLocaleString()})
             </span>
           </button>
         </div>
@@ -217,15 +233,17 @@ export const HausaAttributionAndReviewModal: React.FC<HausaAttributionAndReviewM
                   <span>License Separation &amp; Share-Alike Compliance</span>
                 </div>
                 <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {HAUSA_PACK_MANIFEST.appVsDataLicensingNote}
+                  {manifest.appVsDataLicensingNote}
                 </p>
-                <p className="text-[11px] font-medium text-[#C47248] dark:text-[#E28D70] pt-1">
-                  {HAUSA_PACK_MANIFEST.kamusunHausaStatusNote}
-                </p>
+                {!isYoruba && (
+                  <p className="text-[11px] font-medium text-[#C47248] dark:text-[#E28D70] pt-1">
+                    {HAUSA_PACK_MANIFEST.kamusunHausaStatusNote}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2.5">
-                {HAUSA_PACK_MANIFEST.sourceAttributions.map((src) => (
+                {manifest.sourceAttributions.map((src) => (
                   <div
                     key={src.code}
                     className="p-3.5 rounded-2xl bg-white dark:bg-[#162720] border border-slate-200/80 dark:border-slate-800 space-y-1.5"
@@ -281,7 +299,7 @@ export const HausaAttributionAndReviewModal: React.FC<HausaAttributionAndReviewM
           ) : (
             <div className="space-y-4">
               <div className="p-3 rounded-2xl bg-white dark:bg-[#162720] border border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-300 leading-relaxed">
-                Conflicting Hausa explanations across open sources are{' '}
+                Conflicting {langLabel} definitions across open sources are{' '}
                 <strong className="text-slate-900 dark:text-slate-100">preserved separately</strong> without silent
                 auto-merging. Reviewers can inspect competing source definitions and record local QA status.
               </div>
@@ -295,8 +313,8 @@ export const HausaAttributionAndReviewModal: React.FC<HausaAttributionAndReviewM
                     No active SQLite conflict queue loaded
                   </div>
                   <p className="text-slate-500 dark:text-slate-400">
-                    Install the Hausa Core &amp; Extended packs in Language Library to inspect all{' '}
-                    {HAUSA_PACK_MANIFEST.conflictCount?.toLocaleString()} flagged multi-source entries offline.
+                    Install the {langLabel} Core &amp; Extended packs in Language Library to inspect all{' '}
+                    {manifest.conflictCount?.toLocaleString()} flagged multi-source entries offline.
                   </p>
                 </div>
               ) : (
@@ -358,6 +376,11 @@ export const HausaAttributionAndReviewModal: React.FC<HausaAttributionAndReviewM
                             {ver.definitionHa && (
                               <p className="text-xs text-slate-800 dark:text-slate-200">
                                 <strong className="font-semibold">HA:</strong> {ver.definitionHa}
+                              </p>
+                            )}
+                            {ver.definitionYo && (
+                              <p className="text-xs text-slate-800 dark:text-slate-200">
+                                <strong className="font-semibold">YO:</strong> {ver.definitionYo}
                               </p>
                             )}
                             {ver.definitionEn && (

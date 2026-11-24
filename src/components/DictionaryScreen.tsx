@@ -16,6 +16,10 @@ import { isHausaSqliteIntegrationEnabled } from '../config/hausaDictionaryConfig
 import { hausaPackService, type HausaPackStatus } from '../services/hausaPackService';
 import { hausaSqliteRepo } from '../services/hausaSqliteRepository';
 import { searchHausaStandardUnified } from '../services/hausaSearchCoordinator';
+import { isYorubaSqliteIntegrationEnabled } from '../config/yorubaDictionaryConfig';
+import { yorubaPackService, type YorubaPackStatus } from '../services/yorubaPackService';
+import { yorubaSqliteRepo } from '../services/yorubaSqliteRepository';
+import { searchYorubaStandardUnified } from '../services/yorubaSearchCoordinator';
 import {
   getUiCopy,
   formatText,
@@ -77,6 +81,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
   const [asyncEnglishResponse, setAsyncEnglishResponse] = useState<StandardSearchResponse | null>(null);
   const [englishAvailableLetters, setEnglishAvailableLetters] = useState<string[] | null>(null);
   const [hausaAvailableLetters, setHausaAvailableLetters] = useState<string[] | null>(null);
+  const [yorubaAvailableLetters, setYorubaAvailableLetters] = useState<string[] | null>(null);
   const [isEnglishLoading, setIsEnglishLoading] = useState(false);
   const [isLoadingMoreEnglish, setIsLoadingMoreEnglish] = useState(false);
   const [englishRetryTick, setEnglishRetryTick] = useState(0);
@@ -291,6 +296,119 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
     }
   };
 
+  const [yorubaPackStatus, setYorubaPackStatus] = useState<YorubaPackStatus>(() =>
+    yorubaPackService.getCachedStatus()
+  );
+  const [asyncYorubaResponse, setAsyncYorubaResponse] = useState<StandardSearchResponse | null>(null);
+  const [isYorubaLoading, setIsYorubaLoading] = useState(false);
+  const [isLoadingMoreYoruba, setIsLoadingMoreYoruba] = useState(false);
+  const [yorubaRetryTick, setYorubaRetryTick] = useState(0);
+  const [strictYorubaTones, setStrictYorubaTones] = useState(false);
+
+  useEffect(() => {
+    return yorubaPackService.subscribeStatus((status) => {
+      setYorubaPackStatus(status);
+    });
+  }, []);
+
+  const useYorubaSqlitePath =
+    dictionaryMode === 'standard' && sourceLang === 'yo' && isYorubaSqliteIntegrationEnabled();
+
+  useEffect(() => {
+    if (!useYorubaSqlitePath || !yorubaSqliteRepo.isPackActive()) {
+      setYorubaAvailableLetters(null);
+      return;
+    }
+    let cancelled = false;
+    yorubaSqliteRepo
+      .getAvailableLetters()
+      .then((letters) => {
+        if (!cancelled && letters.length > 0) setYorubaAvailableLetters(letters);
+      })
+      .catch(() => {
+        if (!cancelled) setYorubaAvailableLetters(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [useYorubaSqlitePath, yorubaPackStatus.installed]);
+
+  useEffect(() => {
+    if (!useYorubaSqlitePath) {
+      setAsyncYorubaResponse(null);
+      setIsYorubaLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsYorubaLoading(true);
+    searchYorubaStandardUnified(query, {
+      strictDiacritics: strictYorubaTones,
+      partOfSpeech: selectedPartOfSpeech,
+      letter: selectedLetter,
+      limit: 20,
+      offset: 0,
+    })
+      .then((res) => {
+        if (!cancelled) {
+          setAsyncYorubaResponse(res);
+          setIsYorubaLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setAsyncYorubaResponse({
+            status: 'error',
+            language: 'yo',
+            query,
+            results: [],
+            engineSource: 'sqlite-yo',
+            message: err instanceof Error ? err.message : 'Unable to query Yoruba SQLite dictionary.',
+          });
+          setIsYorubaLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    useYorubaSqlitePath,
+    query,
+    strictYorubaTones,
+    selectedPartOfSpeech,
+    selectedLetter,
+    yorubaPackStatus.installed,
+    yorubaRetryTick,
+  ]);
+
+  const handleLoadMoreYoruba = async () => {
+    if (!asyncYorubaResponse?.hasMore || isLoadingMoreYoruba) return;
+    setIsLoadingMoreYoruba(true);
+    try {
+      const nextOffset = asyncYorubaResponse.results.length;
+      const nextPage = await searchYorubaStandardUnified(query, {
+        strictDiacritics: strictYorubaTones,
+        partOfSpeech: selectedPartOfSpeech,
+        letter: selectedLetter,
+        limit: 20,
+        offset: nextOffset,
+      });
+      setAsyncYorubaResponse((prev) => {
+        if (!prev) return nextPage;
+        const existingIds = new Set(prev.results.map((r) => r.entry.id));
+        const merged = [...prev.results, ...nextPage.results.filter((r) => !existingIds.has(r.entry.id))];
+        return {
+          ...nextPage,
+          results: merged,
+          hasMore: nextPage.hasMore,
+        };
+      });
+    } finally {
+      setIsLoadingMoreYoruba(false);
+    }
+  };
+
   useEffect(() => {
     if (initialQuery) {
       setQuery(initialQuery);
@@ -344,6 +462,9 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
     if (useHausaSqlitePath && hausaAvailableLetters && hausaAvailableLetters.length > 0) {
       return hausaAvailableLetters;
     }
+    if (useYorubaSqlitePath && yorubaAvailableLetters && yorubaAvailableLetters.length > 0) {
+      return yorubaAvailableLetters;
+    }
     const entries = dictionaryDb.getEntriesByLanguage(sourceLang);
     const letters = new Set<string>();
     for (const e of entries) {
@@ -354,12 +475,21 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
       }
     }
     return Array.from(letters).sort((a, b) => a.localeCompare(b));
-  }, [sourceLang, useEnglishSqlitePath, englishAvailableLetters, useHausaSqlitePath, hausaAvailableLetters]);
+  }, [
+    sourceLang,
+    useEnglishSqlitePath,
+    englishAvailableLetters,
+    useHausaSqlitePath,
+    hausaAvailableLetters,
+    useYorubaSqlitePath,
+    yorubaAvailableLetters,
+  ]);
 
   const syncStandardResponse: StandardSearchResponse | null = useMemo(() => {
     if (dictionaryMode !== 'standard') return null;
     if (sourceLang === 'en' && isEnglishSqliteIntegrationEnabled()) return null;
     if (sourceLang === 'ha' && isHausaSqliteIntegrationEnabled()) return null;
+    if (sourceLang === 'yo' && isYorubaSqliteIntegrationEnabled()) return null;
     return dictionaryDb.searchStandard(query, sourceLang, {
       partOfSpeech: selectedPartOfSpeech,
       letter: selectedLetter,
@@ -368,7 +498,8 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
 
   const standardResponse: StandardSearchResponse | null =
     useEnglishSqlitePath ? asyncEnglishResponse :
-    useHausaSqlitePath ? asyncHausaResponse : syncStandardResponse;
+    useHausaSqlitePath ? asyncHausaResponse :
+    useYorubaSqlitePath ? asyncYorubaResponse : syncStandardResponse;
 
   const multilingualResponse: MultilingualSearchResponse | null = useMemo(() => {
     if (dictionaryMode !== 'multilingual') return null;
@@ -658,10 +789,26 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
           </div>
 
           <div className="text-xs text-slate-500 shrink-0 tabular-nums flex items-center gap-2">
+            {useYorubaSqlitePath && (
+              <button
+                type="button"
+                onClick={() => setStrictYorubaTones((prev) => !prev)}
+                className={`text-[10px] font-semibold px-2 py-1 rounded-lg border transition-colors cursor-pointer ${
+                  strictYorubaTones
+                    ? 'bg-[#1B382B] text-white border-[#1B382B]'
+                    : 'bg-white dark:bg-[#162720] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                }`}
+                title="Toggle exact tone-mark matching vs flexible tone-insensitive search"
+              >
+                {strictYorubaTones ? 'Exact tones' : 'Flexible tones'}
+              </button>
+            )}
             {dictionaryMode === 'standard' &&
-              (standardResponse?.engineSource === 'sqlite-en' || standardResponse?.engineSource === 'sqlite-ha') && (
+              (standardResponse?.engineSource === 'sqlite-en' ||
+                standardResponse?.engineSource === 'sqlite-ha' ||
+                standardResponse?.engineSource === 'sqlite-yo') && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#EEF4F0] dark:bg-[#1F372C] text-[#204031] dark:text-[#7E9E88]">
-                {standardResponse.engineSource === 'sqlite-ha' ? 'Open Lexicon · SQLite' : 'Wiktionary'}
+                {standardResponse.engineSource === 'sqlite-en' ? 'Wiktionary' : 'Open Lexicon · SQLite'}
               </span>
             )}
             <span>
@@ -745,12 +892,13 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                             {copy.search.synonymShortLabel} {matchedTerm}
                           </span>
                         )}
-                        {entry.sourceLang === 'ha' && entry.definitionType === 'english_gloss' && (
+                        {(entry.sourceLang === 'ha' || entry.sourceLang === 'yo') &&
+                          entry.definitionType === 'english_gloss' && (
                           <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300">
                             English gloss only
                           </span>
                         )}
-                        {entry.sourceLang === 'ha' && entry.hasConflict && (
+                        {(entry.sourceLang === 'ha' || entry.sourceLang === 'yo') && entry.hasConflict && (
                           <span className="text-[10px] font-medium text-[#C47248] dark:text-[#E28D70]">
                             · Review flagged
                           </span>
@@ -782,6 +930,15 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                             entry.sourceLang === 'ha' &&
                             entry.isMonolingualSqlite &&
                             Boolean(sense.definitionHa);
+                          const hasSplitYoEn =
+                            entry.sourceLang === 'yo' &&
+                            entry.isMonolingualSqlite &&
+                            Boolean(sense.definitionYo);
+                          const primarySplitText = hasSplitHaEn
+                            ? sense.definitionHa
+                            : hasSplitYoEn
+                              ? sense.definitionYo
+                              : sense.definition;
                           return (
                             <div key={sense.id} className="space-y-0.5">
                               <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
@@ -790,9 +947,9 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                                     {sense.senseNumber}.
                                   </span>
                                 )}
-                                {hasSplitHaEn ? sense.definitionHa : sense.definition}
+                                {primarySplitText}
                               </p>
-                              {hasSplitHaEn && sense.definitionEn && (
+                              {(hasSplitHaEn || hasSplitYoEn) && sense.definitionEn && (
                                 <p className="text-xs text-slate-500 dark:text-slate-400">
                                   <span className="font-semibold text-slate-600 dark:text-slate-300 me-1">EN:</span>
                                   {sense.definitionEn}
@@ -801,11 +958,13 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                             </div>
                           );
                         })}
-                        {entry.sourceLang === 'ha' &&
+                        {(entry.sourceLang === 'ha' || entry.sourceLang === 'yo') &&
                           entry.isMonolingualSqlite &&
                           entry.definitionType === 'english_gloss' && (
                             <p className="text-[11px] italic text-slate-500 dark:text-slate-400">
-                              English translation only — verified Hausa explanation unavailable.
+                              {entry.sourceLang === 'yo'
+                                ? 'English translation only — verified Yoruba explanation unavailable.'
+                                : 'English translation only — verified Hausa explanation unavailable.'}
                             </p>
                           )}
                       </div>
@@ -1008,30 +1167,45 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
 
           {/* PAGINATED LOAD MORE FOR SQLITE PACKS */}
           {dictionaryMode === 'standard' &&
-            (standardResponse?.engineSource === 'sqlite-en' || standardResponse?.engineSource === 'sqlite-ha') &&
+            (standardResponse?.engineSource === 'sqlite-en' ||
+              standardResponse?.engineSource === 'sqlite-ha' ||
+              standardResponse?.engineSource === 'sqlite-yo') &&
             standardResponse.hasMore && (
               <div className="pt-2 flex justify-center">
                 <button
                   type="button"
-                  disabled={isLoadingMoreEnglish || isLoadingMoreHausa}
-                  onClick={standardResponse?.engineSource === 'sqlite-en' ? handleLoadMoreEnglish : handleLoadMoreHausa}
+                  disabled={isLoadingMoreEnglish || isLoadingMoreHausa || isLoadingMoreYoruba}
+                  onClick={
+                    standardResponse?.engineSource === 'sqlite-en'
+                      ? handleLoadMoreEnglish
+                      : standardResponse?.engineSource === 'sqlite-ha'
+                        ? handleLoadMoreHausa
+                        : handleLoadMoreYoruba
+                  }
                   className="px-5 py-2.5 rounded-xl bg-white dark:bg-[#15231D] border border-slate-200 dark:border-slate-700 hover:border-[#204031] dark:hover:border-[#7E9E88] text-xs font-semibold text-[#204031] dark:text-[#7E9E88] shadow-xs cursor-pointer transition-all disabled:opacity-60"
                 >
-                  {isLoadingMoreEnglish || isLoadingMoreHausa
+                  {isLoadingMoreEnglish || isLoadingMoreHausa || isLoadingMoreYoruba
                     ? 'Loading more entries...'
                     : `Load more (${standardResponse.results.length.toLocaleString()} of ${(standardResponse.totalCount || 0).toLocaleString()})`}
                 </button>
               </div>
             )}
 
-          {((isEnglishLoading && useEnglishSqlitePath) || (isHausaLoading && useHausaSqlitePath)) && activeCount === 0 && (
+          {((isEnglishLoading && useEnglishSqlitePath) ||
+            (isHausaLoading && useHausaSqlitePath) ||
+            (isYorubaLoading && useYorubaSqlitePath)) &&
+            activeCount === 0 && (
             <div className="py-10 text-center text-xs text-slate-500 dark:text-slate-400">
-              {useHausaSqlitePath ? 'Querying offline Hausa dictionary...' : 'Querying offline English dictionary...'}
+              {useHausaSqlitePath
+                ? 'Querying offline Hausa dictionary...'
+                : useYorubaSqlitePath
+                  ? 'Querying offline Yoruba dictionary...'
+                  : 'Querying offline English dictionary...'}
             </div>
           )}
 
           {/* EMPTY / FAILURE STATE */}
-          {!isEnglishLoading && !isHausaLoading && activeCount === 0 && (
+          {!isEnglishLoading && !isHausaLoading && !isYorubaLoading && activeCount === 0 && (
             <div className="py-12 px-4 text-center rounded-2xl bg-white dark:bg-[#15231D] border border-dashed border-slate-200 dark:border-slate-800 space-y-3">
               {activeStatus === 'language_not_installed' || activeStatus === 'error' ? (
                 <AlertCircle className="w-8 h-8 text-[#C47248] mx-auto" />
@@ -1046,7 +1220,7 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
 
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1 leading-relaxed">
                   {activeStatus === 'language_not_installed' &&
-                  (sourceLang === 'en' || sourceLang === 'ha') &&
+                  (sourceLang === 'en' || sourceLang === 'ha' || sourceLang === 'yo') &&
                   standardResponse?.message
                     ? standardResponse.message
                     : activeStatus === 'error' && standardResponse?.message
@@ -1065,15 +1239,21 @@ export const DictionaryScreen: React.FC<DictionaryScreenProps> = ({
                     ? `Install English Pack (${(ENGLISH_PACK_MANIFEST.compressedSizeBytes / (1024 * 1024)).toFixed(1)} MB)`
                     : sourceLang === 'ha' && hausaPackService.isNativeAndroid()
                       ? `Install Hausa Pack`
-                      : copy.statuses.openLanguageLibrary}
+                      : sourceLang === 'yo' && yorubaPackService.isNativeAndroid()
+                        ? `Install Yoruba Pack`
+                        : copy.statuses.openLanguageLibrary}
                 </button>
               )}
 
-              {activeStatus === 'error' && (useEnglishSqlitePath || useHausaSqlitePath) && (
+              {activeStatus === 'error' && (useEnglishSqlitePath || useHausaSqlitePath || useYorubaSqlitePath) && (
                 <button
                   type="button"
                   onClick={() =>
-                    useHausaSqlitePath ? setHausaRetryTick((t) => t + 1) : setEnglishRetryTick((t) => t + 1)
+                    useHausaSqlitePath
+                      ? setHausaRetryTick((t) => t + 1)
+                      : useYorubaSqlitePath
+                        ? setYorubaRetryTick((t) => t + 1)
+                        : setEnglishRetryTick((t) => t + 1)
                   }
                   className="px-4 py-2 rounded-xl bg-[#1B382B] text-white text-xs font-semibold cursor-pointer hover:bg-[#142A20] transition-all"
                 >

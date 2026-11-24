@@ -6,6 +6,8 @@ import { englishPackService } from './services/englishPackService';
 import { englishSqliteRepo } from './services/englishSqliteRepository';
 import { hausaPackService } from './services/hausaPackService';
 import { hausaSqliteRepo } from './services/hausaSqliteRepository';
+import { yorubaPackService } from './services/yorubaPackService';
+import { yorubaSqliteRepo } from './services/yorubaSqliteRepository';
 import { OnboardingScreen } from './components/OnboardingScreen';
 import { Navigation, NavigationTab } from './components/Navigation';
 import { HomeScreen } from './components/HomeScreen';
@@ -26,6 +28,7 @@ export default function App() {
   const [savedSqliteEntries, setSavedSqliteEntries] = useState<WordEntry[]>([]);
   const [englishPackVersionTick, setEnglishPackVersionTick] = useState(0);
   const [hausaPackVersionTick, setHausaPackVersionTick] = useState(0);
+  const [yorubaPackVersionTick, setYorubaPackVersionTick] = useState(0);
 
   useEffect(() => {
     const unsubEn = englishPackService.subscribeStatus(() => {
@@ -34,11 +37,16 @@ export default function App() {
     const unsubHa = hausaPackService.subscribeStatus(() => {
       setHausaPackVersionTick((t) => t + 1);
     });
+    const unsubYo = yorubaPackService.subscribeStatus(() => {
+      setYorubaPackVersionTick((t) => t + 1);
+    });
     void englishPackService.refreshStatus();
     void hausaPackService.refreshStatus();
+    void yorubaPackService.refreshStatus();
     return () => {
       unsubEn();
       unsubHa();
+      unsubYo();
     };
   }, []);
 
@@ -46,6 +54,7 @@ export default function App() {
     let cancelled = false;
     const enIds = preferences.savedWordIds.filter((id) => id.startsWith('en-sqlite-'));
     const haIds = preferences.savedWordIds.filter((id) => /^ha-\d+$/.test(id));
+    const yoIds = preferences.savedWordIds.filter((id) => /^yo-sqlite-\d+$/.test(id));
     const promises: Promise<WordEntry[]>[] = [];
 
     if (enIds.length > 0 && englishSqliteRepo.isPackActive()) {
@@ -53,6 +62,9 @@ export default function App() {
     }
     if (haIds.length > 0 && hausaSqliteRepo.isPackActive()) {
       promises.push(hausaSqliteRepo.getEntriesByIds(haIds).catch(() => []));
+    }
+    if (yoIds.length > 0 && yorubaSqliteRepo.isPackActive()) {
+      promises.push(yorubaSqliteRepo.getEntriesByIds(yoIds).catch(() => []));
     }
 
     if (promises.length === 0) {
@@ -72,7 +84,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [preferences.savedWordIds, englishPackVersionTick, hausaPackVersionTick]);
+  }, [preferences.savedWordIds, englishPackVersionTick, hausaPackVersionTick, yorubaPackVersionTick]);
 
   // Synchronize dark mode class, theme color, document language & RTL/LTR direction
   useEffect(() => {
@@ -316,6 +328,12 @@ export default function App() {
             if (/^ha-\d+$/.test(id)) {
               void hausaSqliteRepo.getEntriesByIds([id]).then((found) => {
                 if (found[0]) setSelectedWord(found[0]);
+              });
+              return;
+            }
+            if (/^yo-sqlite-\d+$/.test(id)) {
+              void yorubaSqliteRepo.getEntryById(id).then((found) => {
+                if (found) setSelectedWord(found);
               });
               return;
             }

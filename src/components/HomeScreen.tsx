@@ -15,6 +15,9 @@ import { searchEnglishStandardUnified } from '../services/englishSearchCoordinat
 import { isHausaSqliteIntegrationEnabled } from '../config/hausaDictionaryConfig';
 import { hausaPackService, type HausaPackStatus } from '../services/hausaPackService';
 import { searchHausaStandardUnified } from '../services/hausaSearchCoordinator';
+import { isYorubaSqliteIntegrationEnabled } from '../config/yorubaDictionaryConfig';
+import { yorubaPackService, type YorubaPackStatus } from '../services/yorubaPackService';
+import { searchYorubaStandardUnified } from '../services/yorubaSearchCoordinator';
 import { audioService } from '../services/audioService';
 import {
   getUiCopy,
@@ -88,6 +91,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [asyncHausaResponse, setAsyncHausaResponse] = useState<StandardSearchResponse | null>(null);
   const [isHausaSearching, setIsHausaSearching] = useState(false);
 
+  const [yorubaPackStatus, setYorubaPackStatus] = useState<YorubaPackStatus>(() =>
+    yorubaPackService.getCachedStatus()
+  );
+  const [asyncYorubaResponse, setAsyncYorubaResponse] = useState<StandardSearchResponse | null>(null);
+  const [isYorubaSearching, setIsYorubaSearching] = useState(false);
+
   useEffect(() => {
     const unsubEn = englishPackService.subscribeStatus((status) => {
       setEnglishPackStatus(status);
@@ -95,9 +104,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     const unsubHa = hausaPackService.subscribeStatus((status) => {
       setHausaPackStatus(status);
     });
+    const unsubYo = yorubaPackService.subscribeStatus((status) => {
+      setYorubaPackStatus(status);
+    });
     return () => {
       unsubEn();
       unsubHa();
+      unsubYo();
     };
   }, []);
 
@@ -183,6 +196,47 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     };
   }, [dictionaryMode, sourceLang, searchQuery, hausaPackStatus.installed]);
 
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (
+      dictionaryMode !== 'standard' ||
+      sourceLang !== 'yo' ||
+      !trimmed ||
+      !isYorubaSqliteIntegrationEnabled()
+    ) {
+      setAsyncYorubaResponse(null);
+      setIsYorubaSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsYorubaSearching(true);
+    searchYorubaStandardUnified(trimmed, { limit: 20, offset: 0 })
+      .then((res) => {
+        if (!cancelled) {
+          setAsyncYorubaResponse(res);
+          setIsYorubaSearching(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setAsyncYorubaResponse({
+            status: 'error',
+            language: 'yo',
+            query: trimmed,
+            results: [],
+            engineSource: 'sqlite-yo',
+            message: err instanceof Error ? err.message : 'Unable to search offline Yoruba dictionary.',
+          });
+          setIsYorubaSearching(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dictionaryMode, sourceLang, searchQuery, yorubaPackStatus.installed]);
+
   const handleSelectSearchResult = (entry: WordEntry) => {
     if (searchQuery.trim() && onRecordSearch) {
       onRecordSearch(searchQuery.trim());
@@ -224,6 +278,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     if (dictionaryMode !== 'standard' || !searchQuery.trim()) return null;
     if (sourceLang === 'en' && isEnglishSqliteIntegrationEnabled()) return null;
     if (sourceLang === 'ha' && isHausaSqliteIntegrationEnabled()) return null;
+    if (sourceLang === 'yo' && isYorubaSqliteIntegrationEnabled()) return null;
     return dictionaryDb.searchStandard(searchQuery.trim(), sourceLang);
   }, [dictionaryMode, searchQuery, sourceLang]);
 
@@ -232,6 +287,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       ? asyncEnglishResponse
       : dictionaryMode === 'standard' && sourceLang === 'ha' && isHausaSqliteIntegrationEnabled()
       ? asyncHausaResponse
+      : dictionaryMode === 'standard' && sourceLang === 'yo' && isYorubaSqliteIntegrationEnabled()
+      ? asyncYorubaResponse
       : syncStandardResponse;
 
   // Engine 2: Multilingual Search
@@ -529,6 +586,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   Wiktionary SQLite
                 </span>
               )}
+              {dictionaryMode === 'standard' &&
+                (standardResponse?.engineSource === 'sqlite-ha' ||
+                  standardResponse?.engineSource === 'sqlite-yo') && (
+                <span className="ms-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#EEF4F0] dark:bg-[#1F372C] text-[#204031] dark:text-[#7E9E88]">
+                  {standardResponse.engineSource === 'sqlite-yo' ? 'Yoruba SQLite' : 'Hausa SQLite'}
+                </span>
+              )}
               {dictionaryMode === 'standard' && standardResponse?.engineSource === 'web-preview-fallback' && (
                 <span className="ms-1.5 text-[10px] font-medium text-slate-400">
                   (Web preview)
@@ -597,19 +661,39 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                         </div>
 
                         <div className="mt-2 space-y-1">
-                          {senses.slice(0, 2).map((sense) => (
-                            <p
-                              key={sense.id}
-                              className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed"
-                            >
-                              {senses.length > 1 && (
-                                <span className="font-semibold text-[#345E4C] dark:text-[#7E9E88] me-1.5">
-                                  {sense.senseNumber}.
-                                </span>
-                              )}
-                              {sense.definition}
-                            </p>
-                          ))}
+                          {senses.slice(0, 2).map((sense) => {
+                            const hasSplitHaEn =
+                              entry.sourceLang === 'ha' &&
+                              entry.isMonolingualSqlite &&
+                              Boolean(sense.definitionHa);
+                            const hasSplitYoEn =
+                              entry.sourceLang === 'yo' &&
+                              entry.isMonolingualSqlite &&
+                              Boolean(sense.definitionYo);
+                            const primarySplitText = hasSplitHaEn
+                              ? sense.definitionHa
+                              : hasSplitYoEn
+                                ? sense.definitionYo
+                                : sense.definition;
+                            return (
+                              <div key={sense.id} className="space-y-0.5">
+                                <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                                  {senses.length > 1 && (
+                                    <span className="font-semibold text-[#345E4C] dark:text-[#7E9E88] me-1.5">
+                                      {sense.senseNumber}.
+                                    </span>
+                                  )}
+                                  {primarySplitText}
+                                </p>
+                                {(hasSplitHaEn || hasSplitYoEn) && sense.definitionEn && (
+                                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    <span className="font-semibold text-slate-600 dark:text-slate-300 me-1">EN:</span>
+                                    {sense.definitionEn}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
 
                         {(morphologicalForms.length > 0 || entry.synonyms.length > 0) && (
@@ -806,14 +890,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </div>
           )}
 
-          {isEnglishSearching && activeResultCount === 0 && (
+          {(isEnglishSearching || isHausaSearching || isYorubaSearching) && activeResultCount === 0 && (
             <div className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">
-              Searching English dictionary...
+              {isHausaSearching
+                ? 'Searching Hausa dictionary...'
+                : isYorubaSearching
+                  ? 'Searching Yoruba dictionary...'
+                  : 'Searching English dictionary...'}
             </div>
           )}
 
           {/* EXPLICIT EMPTY / ERROR STATES */}
-          {!isEnglishSearching && activeResultCount === 0 && currentStatus && currentStatus !== 'ok' && currentStatus !== 'browse' && (
+          {!isEnglishSearching && !isHausaSearching && !isYorubaSearching && activeResultCount === 0 && currentStatus && currentStatus !== 'ok' && currentStatus !== 'browse' && (
             <div className="py-8 px-4 text-center rounded-2xl bg-white dark:bg-[#15231D] border border-dashed border-slate-200 dark:border-slate-800 space-y-3">
               {currentStatus === 'language_not_installed' || currentStatus === 'error' ? (
                 <AlertCircle className="w-7 h-7 text-[#C47248] mx-auto" />
@@ -827,7 +915,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 </h4>
 
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1 leading-relaxed">
-                  {currentStatus === 'language_not_installed' && sourceLang === 'en' && standardResponse?.message
+                  {currentStatus === 'language_not_installed' &&
+                  (sourceLang === 'en' || sourceLang === 'ha' || sourceLang === 'yo') &&
+                  standardResponse?.message
                     ? standardResponse.message
                     : currentStatus === 'error' && standardResponse?.message
                       ? standardResponse.message

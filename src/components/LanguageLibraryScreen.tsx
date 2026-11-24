@@ -16,6 +16,13 @@ import {
 import { HAUSA_PACK_MANIFEST, isHausaSqliteIntegrationEnabled } from '../config/hausaDictionaryConfig';
 import { hausaPackService, type HausaPackStatus } from '../services/hausaPackService';
 import { hausaSqliteRepo, type HausaBenchmarkReport } from '../services/hausaSqliteRepository';
+import { YORUBA_PACK_MANIFEST, isYorubaSqliteIntegrationEnabled } from '../config/yorubaDictionaryConfig';
+import { yorubaPackService, type YorubaPackStatus } from '../services/yorubaPackService';
+import {
+  yorubaSqliteRepo,
+  type YorubaBenchmarkReport,
+  type YorubaInstalledStats,
+} from '../services/yorubaSqliteRepository';
 import { HausaAttributionAndReviewModal } from './HausaAttributionAndReviewModal';
 import {
   getUiCopy,
@@ -80,7 +87,24 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
   const [hausaBenchmarkReport, setHausaBenchmarkReport] = useState<HausaBenchmarkReport | null>(null);
   const [isRunningHausaBenchmark, setIsRunningHausaBenchmark] = useState(false);
   const [isHausaExtendedBusy, setIsHausaExtendedBusy] = useState(false);
-  const [hausaAttributionModalTab, setHausaAttributionModalTab] = useState<'sources' | 'conflicts' | null>(null);
+
+  const [yorubaStatus, setYorubaStatus] = useState<YorubaPackStatus>(() =>
+    yorubaPackService.getCachedStatus()
+  );
+  const [yorubaProgress, setYorubaProgress] = useState<PackInstallProgress>(() =>
+    yorubaPackService.getCachedProgress()
+  );
+  const [yorubaLiveStats, setYorubaLiveStats] = useState<YorubaInstalledStats | null>(null);
+  const [yorubaActionError, setYorubaActionError] = useState<string | null>(null);
+  const [yorubaVerifyMsg, setYorubaVerifyMsg] = useState<string | null>(null);
+  const [yorubaBenchmarkReport, setYorubaBenchmarkReport] = useState<YorubaBenchmarkReport | null>(null);
+  const [isRunningYorubaBenchmark, setIsRunningYorubaBenchmark] = useState(false);
+  const [isYorubaExtendedBusy, setIsYorubaExtendedBusy] = useState(false);
+
+  const [attributionModalState, setAttributionModalState] = useState<{
+    lang: 'ha' | 'yo';
+    tab: 'sources' | 'conflicts';
+  } | null>(null);
 
   const [isBackupBusy, setIsBackupBusy] = useState(false);
   const [backupStatusMsg, setBackupStatusMsg] = useState<string | null>(null);
@@ -94,15 +118,39 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
     const unsubProgressEn = englishPackService.subscribeProgress(setEnglishProgress);
     const unsubStatusHa = hausaPackService.subscribeStatus(setHausaStatus);
     const unsubProgressHa = hausaPackService.subscribeProgress(setHausaProgress);
+    const unsubStatusYo = yorubaPackService.subscribeStatus(setYorubaStatus);
+    const unsubProgressYo = yorubaPackService.subscribeProgress(setYorubaProgress);
     void englishPackService.refreshStatus();
     void hausaPackService.refreshStatus();
+    void yorubaPackService.refreshStatus();
     return () => {
       unsubStatusEn();
       unsubProgressEn();
       unsubStatusHa();
       unsubProgressHa();
+      unsubStatusYo();
+      unsubProgressYo();
     };
   }, []);
+
+  useEffect(() => {
+    if (!yorubaStatus.installed || !yorubaSqliteRepo.isPackActive()) {
+      setYorubaLiveStats(null);
+      return;
+    }
+    let cancelled = false;
+    yorubaSqliteRepo
+      .getInstalledStats()
+      .then((stats) => {
+        if (!cancelled) setYorubaLiveStats(stats);
+      })
+      .catch(() => {
+        if (!cancelled) setYorubaLiveStats(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [yorubaStatus.installed, yorubaStatus.extendedInstalled, yorubaStatus.dbPath]);
 
   const copy = getUiCopy(interfaceLang);
   const content = getContentCopy(interfaceLang);
@@ -110,9 +158,11 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
   const liveStats = dictionaryDb.getLanguagePackStats();
   const sqliteEnEnabled = isEnglishSqliteIntegrationEnabled();
   const sqliteHaEnabled = isHausaSqliteIntegrationEnabled();
+  const sqliteYoEnabled = isYorubaSqliteIntegrationEnabled();
   const isNativeAndroid = englishPackService.isNativeAndroid();
   const useSqliteEnglishCard = sqliteEnEnabled && (isNativeAndroid || englishStatus.installed);
   const useSqliteHausaCard = sqliteHaEnabled && (isNativeAndroid || hausaStatus.installed);
+  const useSqliteYorubaCard = sqliteYoEnabled && (isNativeAndroid || yorubaStatus.installed);
 
   const totalInstalledBytes = Object.values(liveStats).reduce((sum, stat) => {
     if (stat.code === 'en' && useSqliteEnglishCard) {
@@ -123,6 +173,13 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
     if (stat.code === 'ha' && useSqliteHausaCard) {
       return hausaStatus.installed
         ? sum + (hausaStatus.dbSizeBytes || HAUSA_PACK_MANIFEST.uncompressedSizeBytes)
+        : sum;
+    }
+    if (stat.code === 'yo' && useSqliteYorubaCard) {
+      return yorubaStatus.installed
+        ? sum +
+            (yorubaStatus.dbSizeBytes || YORUBA_PACK_MANIFEST.uncompressedSizeBytes) +
+            (yorubaStatus.extendedInstalled ? yorubaStatus.extendedDbSizeBytes || 0 : 0)
         : sum;
     }
     return stat.isInstalled ? sum + stat.actualSizeBytes : sum;
@@ -136,6 +193,9 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
     if (s.code === 'ha' && useSqliteHausaCard) {
       return hausaStatus.installed;
     }
+    if (s.code === 'yo' && useSqliteYorubaCard) {
+      return yorubaStatus.installed;
+    }
     return s.isInstalled;
   }).length;
 
@@ -148,6 +208,11 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
     if (s.code === 'ha' && useSqliteHausaCard) {
       return hausaStatus.installed
         ? sum + (hausaStatus.acceptedEntries || HAUSA_PACK_MANIFEST.acceptedEntries)
+        : sum;
+    }
+    if (s.code === 'yo' && useSqliteYorubaCard) {
+      return yorubaStatus.installed
+        ? sum + (yorubaLiveStats?.acceptedEntries ?? yorubaStatus.acceptedEntries)
         : sum;
     }
     return sum + s.loadedEntriesCount;
@@ -308,6 +373,112 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
     }
   };
 
+  const handleInstallOrResumeYoruba = async () => {
+    setYorubaActionError(null);
+    setYorubaVerifyMsg(null);
+    setDownloadingCode('yo');
+    try {
+      await yorubaPackService.installPack();
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      if (code !== 'DOWNLOAD_CANCELLED') {
+        setYorubaActionError(
+          err instanceof Error ? err.message : 'Unable to install offline Yoruba SQLite pack.'
+        );
+      }
+    } finally {
+      setDownloadingCode(null);
+    }
+  };
+
+  const handleRemoveYoruba = async () => {
+    setYorubaActionError(null);
+    setYorubaVerifyMsg(null);
+    setYorubaBenchmarkReport(null);
+    setYorubaLiveStats(null);
+    setDownloadingCode('yo');
+    try {
+      await yorubaPackService.removePack();
+    } catch (err) {
+      setYorubaActionError(err instanceof Error ? err.message : 'Unable to remove Yoruba pack.');
+    } finally {
+      setDownloadingCode(null);
+    }
+  };
+
+  const handleVerifyYoruba = async () => {
+    setYorubaActionError(null);
+    setYorubaVerifyMsg(null);
+    try {
+      const verified = await yorubaPackService.verifyInstalledPack();
+      const live = yorubaSqliteRepo.isPackActive() ? await yorubaSqliteRepo.getInstalledStats() : null;
+      if (live) setYorubaLiveStats(live);
+      setYorubaVerifyMsg(
+        `SQLite quick_check OK · ${(live?.acceptedEntries || verified.acceptedEntries || YORUBA_PACK_MANIFEST.acceptedEntries).toLocaleString()} entries verified.`
+      );
+    } catch (err) {
+      setYorubaActionError(err instanceof Error ? err.message : 'Integrity verification failed.');
+    }
+  };
+
+  const handleRunYorubaBenchmark = async () => {
+    setYorubaActionError(null);
+    setIsRunningYorubaBenchmark(true);
+    try {
+      const report = await yorubaSqliteRepo.runBenchmark();
+      setYorubaBenchmarkReport(report);
+    } catch (err) {
+      setYorubaActionError(err instanceof Error ? err.message : 'Benchmark failed.');
+    } finally {
+      setIsRunningYorubaBenchmark(false);
+    }
+  };
+
+  const handleInstallYorubaExtended = async () => {
+    setYorubaActionError(null);
+    setYorubaVerifyMsg(null);
+    setIsYorubaExtendedBusy(true);
+    try {
+      await yorubaPackService.installExtendedPack();
+      setYorubaVerifyMsg(
+        'Yoruba Extended Companion Pack installed (multi-sense definitions, Tatoeba examples, etymology & conflicts ready).'
+      );
+    } catch (err) {
+      setYorubaActionError(
+        err instanceof Error ? err.message : 'Unable to install Yoruba Extended pack.'
+      );
+    } finally {
+      setIsYorubaExtendedBusy(false);
+    }
+  };
+
+  const handleRemoveYorubaExtended = async () => {
+    setYorubaActionError(null);
+    setYorubaVerifyMsg(null);
+    setIsYorubaExtendedBusy(true);
+    try {
+      await yorubaPackService.removeExtendedPack();
+      setYorubaVerifyMsg('Yoruba Extended Companion Pack removed. Yoruba Core pack remains active.');
+    } catch (err) {
+      setYorubaActionError(
+        err instanceof Error ? err.message : 'Unable to remove Yoruba Extended pack.'
+      );
+    } finally {
+      setIsYorubaExtendedBusy(false);
+    }
+  };
+
+  const handleVerifyYorubaExtended = async () => {
+    setYorubaActionError(null);
+    setYorubaVerifyMsg(null);
+    try {
+      await yorubaPackService.verifyExtendedPack();
+      setYorubaVerifyMsg('Yoruba Extended Companion SQLite quick_check OK.');
+    } catch (err) {
+      setYorubaActionError(err instanceof Error ? err.message : 'Extended verification failed.');
+    }
+  };
+
   const handleExportBackup = async () => {
     setBackupErrorMsg(null);
     setBackupStatusMsg(null);
@@ -403,6 +574,14 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
       }
       return;
     }
+    if (code === 'yo' && useSqliteYorubaCard) {
+      if (yorubaStatus.installed) {
+        void handleRemoveYoruba();
+      } else {
+        void handleInstallOrResumeYoruba();
+      }
+      return;
+    }
     setDownloadingCode(code);
     setTimeout(() => {
       onTogglePack(code);
@@ -443,6 +622,7 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
           const stat = liveStats[lang.code];
           const isEnglishSqliteCard = lang.code === 'en' && useSqliteEnglishCard;
           const isHausaSqliteCard = lang.code === 'ha' && useSqliteHausaCard;
+          const isYorubaSqliteCard = lang.code === 'yo' && useSqliteYorubaCard;
           const pack = installedPacks[lang.code] || {
             code: lang.code,
             installed: stat.isInstalled,
@@ -453,16 +633,23 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
             ? englishStatus.installed
             : isHausaSqliteCard
             ? hausaStatus.installed
+            : isYorubaSqliteCard
+            ? yorubaStatus.installed
             : stat.isInstalled;
           const displayVersion = isEnglishSqliteCard
             ? englishStatus.datasetVersion || ENGLISH_PACK_MANIFEST.packVersion
             : isHausaSqliteCard
             ? hausaStatus.datasetVersion || HAUSA_PACK_MANIFEST.packVersion
+            : isYorubaSqliteCard
+            ? yorubaStatus.datasetVersion || YORUBA_PACK_MANIFEST.packVersion
             : pack.version;
           const isEnglishCoreLayer =
             isEnglishSqliteCard &&
             (englishStatus.packLayer !== 'full' || ENGLISH_PACK_MANIFEST.packLayer === 'core') &&
             !englishStatus.extendedInstalled;
+          const yorubaManifestBilingualLinks =
+            (YORUBA_PACK_MANIFEST.bilingualExplanationCount || 0) +
+            (YORUBA_PACK_MANIFEST.englishGlossOnlyCount || 0);
           const displayEntries = isEnglishSqliteCard
             ? isInstalled
               ? englishStatus.acceptedEntries || ENGLISH_PACK_MANIFEST.acceptedEntries
@@ -471,6 +658,10 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
             ? isInstalled
               ? hausaStatus.acceptedEntries || HAUSA_PACK_MANIFEST.acceptedEntries
               : HAUSA_PACK_MANIFEST.acceptedEntries
+            : isYorubaSqliteCard
+            ? isInstalled
+              ? yorubaLiveStats?.acceptedEntries ?? yorubaStatus.acceptedEntries
+              : YORUBA_PACK_MANIFEST.acceptedEntries
             : stat.loadedEntriesCount;
           const displaySenses = isEnglishSqliteCard
             ? isEnglishCoreLayer
@@ -484,13 +675,29 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
             ? isInstalled
               ? hausaStatus.totalSenses || HAUSA_PACK_MANIFEST.totalSenses
               : HAUSA_PACK_MANIFEST.totalSenses
+            : isYorubaSqliteCard
+            ? isInstalled
+              ? yorubaLiveStats?.totalSenses ??
+                (yorubaStatus.extendedInstalled
+                  ? yorubaStatus.totalSenses || YORUBA_PACK_MANIFEST.totalSenses
+                  : yorubaStatus.corePrimarySenses ||
+                    yorubaStatus.totalSenses ||
+                    YORUBA_PACK_MANIFEST.corePrimarySenses ||
+                    YORUBA_PACK_MANIFEST.acceptedEntries)
+              : YORUBA_PACK_MANIFEST.corePrimarySenses || YORUBA_PACK_MANIFEST.acceptedEntries
             : stat.sensesCount;
+          const displayTranslationLinks = isYorubaSqliteCard
+            ? isInstalled
+              ? yorubaLiveStats?.bilingualLinksCount ?? yorubaManifestBilingualLinks
+              : yorubaManifestBilingualLinks
+            : stat.translationRelationshipsCount;
 
           const isExpanded = expandedLang === lang.code;
           const isDownloading =
             downloadingCode === lang.code ||
             (isEnglishSqliteCard && englishStatus.inProgress) ||
-            (isHausaSqliteCard && hausaStatus.inProgress);
+            (isHausaSqliteCard && hausaStatus.inProgress) ||
+            (isYorubaSqliteCard && yorubaStatus.inProgress);
           const kbSize = Math.round(stat.actualSizeBytes / 1024);
           const enCompressedMb = (ENGLISH_PACK_MANIFEST.compressedSizeBytes / (1024 * 1024)).toFixed(2);
           const enUncompressedMb = (
@@ -504,6 +711,13 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
             (isInstalled && hausaStatus.dbSizeBytes
               ? hausaStatus.dbSizeBytes
               : HAUSA_PACK_MANIFEST.uncompressedSizeBytes) /
+            (1024 * 1024)
+          ).toFixed(2);
+          const yoCompressedMb = (YORUBA_PACK_MANIFEST.compressedSizeBytes / (1024 * 1024)).toFixed(2);
+          const yoUncompressedMb = (
+            (isInstalled && yorubaStatus.dbSizeBytes
+              ? yorubaStatus.dbSizeBytes
+              : YORUBA_PACK_MANIFEST.uncompressedSizeBytes) /
             (1024 * 1024)
           ).toFixed(2);
           const hasPartialResume = isEnglishSqliteCard && !isInstalled && englishStatus.partialBytes > 0;
@@ -566,6 +780,10 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                         ? isInstalled
                           ? `${haUncompressedMb} MB offline`
                           : `${haCompressedMb} MB download · ${haUncompressedMb} MB offline`
+                        : isYorubaSqliteCard
+                        ? isInstalled
+                          ? `${yoUncompressedMb} MB offline`
+                          : `${yoCompressedMb} MB download · ${yoUncompressedMb} MB offline`
                         : `${kbSize} KB (${stat.actualSizeMb.toFixed(2)} MB)`}
                     </div>
                     <div
@@ -618,6 +836,8 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                               ? `Install (${enCompressedMb} MB)`
                               : isHausaSqliteCard
                               ? `Install (${haCompressedMb} MB)`
+                              : isYorubaSqliteCard
+                              ? `Install (${yoCompressedMb} MB)`
                               : copy.library.installPack}
                         </span>
                       </>
@@ -640,6 +860,18 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                     <button
                       type="button"
                       onClick={() => void hausaPackService.cancelInstall()}
+                      className="h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800"
+                      title="Cancel download"
+                    >
+                      <Pause className="w-3.5 h-3.5" />
+                      <span>Cancel</span>
+                    </button>
+                  )}
+
+                  {isYorubaSqliteCard && isDownloading && (
+                    <button
+                      type="button"
+                      onClick={() => void yorubaPackService.cancelInstall()}
                       className="h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800"
                       title="Cancel download"
                     >
@@ -742,6 +974,48 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                 </div>
               )}
 
+              {/* Yoruba SQLite Download / Extraction Progress & Error Strip */}
+              {isYorubaSqliteCard && (isDownloading || yorubaActionError || yorubaStatus.error) && (
+                <div className="px-5 pb-4 space-y-2">
+                  {isDownloading && (
+                    <div className="p-3 rounded-2xl bg-[#EEF4F0] dark:bg-[#172B22] border border-[#204031]/20 dark:border-[#7E9E88]/30 space-y-1.5">
+                      <div className="flex items-center justify-between text-xs font-medium text-[#204031] dark:text-[#7E9E88]">
+                        <span>{yorubaProgress.message || copy.library.updating}</span>
+                        <span dir="ltr" className="font-mono tabular-nums">
+                          {yorubaProgress.percent}%
+                        </span>
+                      </div>
+                      <div className="w-full h-2 rounded-full bg-white dark:bg-[#101C16] overflow-hidden">
+                        <div
+                          className="h-full bg-[#204031] dark:bg-[#7E9E88] transition-all duration-200"
+                          style={{ width: `${Math.max(4, Math.min(100, yorubaProgress.percent))}%` }}
+                        />
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums" dir="ltr">
+                        {(yorubaProgress.processedBytes / 1024).toFixed(0)} KB /{' '}
+                        {(yorubaProgress.totalBytes / 1024).toFixed(0)} KB
+                      </div>
+                    </div>
+                  )}
+
+                  {(yorubaActionError || yorubaStatus.error) && (
+                    <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 flex items-start justify-between gap-2 text-xs text-rose-800 dark:text-rose-200">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" />
+                        <span>{yorubaActionError || yorubaStatus.error}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleInstallOrResumeYoruba()}
+                        className="px-2.5 py-1 rounded-lg bg-rose-700 text-white text-[11px] font-semibold shrink-0 cursor-pointer"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Expanded Linguistic Specification */}
               {isExpanded && (
                 <div className="px-5 pb-5 pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-4 animate-in fade-in duration-200">
@@ -760,7 +1034,7 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                     </div>
                     <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#172B22] border border-slate-200/60 dark:border-slate-800">
                       <div className="text-sm font-bold text-slate-900 dark:text-slate-100 tabular-nums">
-                        {stat.translationRelationshipsCount}
+                        {displayTranslationLinks.toLocaleString()}
                       </div>
                       <div className="text-[11px] text-slate-500">{copy.library.translationLinksBox}</div>
                     </div>
@@ -958,7 +1232,7 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => setHausaAttributionModalTab('sources')}
+                          onClick={() => setAttributionModalState({ lang: 'ha', tab: 'sources' })}
                           className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1F372C] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] flex items-center gap-1.5 cursor-pointer"
                         >
                           <Scale className="w-3.5 h-3.5" />
@@ -988,6 +1262,161 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
                           <div>Exact: {hausaBenchmarkReport.exactHeadwordMs} ms | Prefix: {hausaBenchmarkReport.prefixQueryMs} ms</div>
                           <div>FTS5: {hausaBenchmarkReport.ftsDefinitionMs} ms | Normalized: {hausaBenchmarkReport.normalizedQueryMs} ms</div>
                           <div>Entries verified: {hausaBenchmarkReport.totalEntriesVerified.toLocaleString()}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {isYorubaSqliteCard && (
+                    <div className="p-3.5 rounded-2xl bg-[#F4EFE6] dark:bg-[#162720] border border-slate-200/80 dark:border-slate-800 space-y-2.5 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="font-bold text-slate-900 dark:text-slate-100">
+                            Yoruba Schema v{YORUBA_PACK_MANIFEST.schemaVersion} Open-Source Pack (4 Sources)
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {YORUBA_PACK_MANIFEST.attribution.license} · Pack v{YORUBA_PACK_MANIFEST.packVersion} ·{' '}
+                            {(yorubaLiveStats?.distinctHeadwords ?? YORUBA_PACK_MANIFEST.distinctHeadwords).toLocaleString()} headwords ·{' '}
+                            {(
+                              (yorubaLiveStats?.yorubaMonolingualCount ??
+                                YORUBA_PACK_MANIFEST.yorubaMonolingualCount ??
+                                0) +
+                              (yorubaLiveStats?.bilingualExplanationCount ??
+                                YORUBA_PACK_MANIFEST.bilingualExplanationCount ??
+                                0)
+                            ).toLocaleString()}{' '}
+                            Yoruba explanations ·{' '}
+                            {(
+                              yorubaLiveStats?.englishGlossOnlyCount ??
+                              YORUBA_PACK_MANIFEST.englishGlossOnlyCount ??
+                              0
+                            ).toLocaleString()}{' '}
+                            EN gloss only
+                          </div>
+                        </div>
+                        {yorubaStatus.availableBytes > 0 && (
+                          <span dir="ltr" className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                            Free storage: {(yorubaStatus.availableBytes / (1024 * 1024 * 1024)).toFixed(2)} GB
+                          </span>
+                        )}
+                      </div>
+
+                      {YORUBA_PACK_MANIFEST.extendedCompanion && (
+                        <div className="p-2.5 rounded-xl bg-white/80 dark:bg-[#101C16]/80 border border-slate-200/70 dark:border-slate-800 space-y-2 text-[11px] text-slate-600 dark:text-slate-300">
+                          <div>
+                            <span className="font-semibold text-slate-800 dark:text-slate-100">
+                              Optional Extended Enrichment (
+                              {(YORUBA_PACK_MANIFEST.extendedCompanion.compressedSizeBytes / (1024 * 1024)).toFixed(2)} MB download ·{' '}
+                              {(YORUBA_PACK_MANIFEST.extendedCompanion.uncompressedSizeBytes / (1024 * 1024)).toFixed(2)} MB offline):
+                            </span>{' '}
+                            {yorubaStatus.extendedInstalled
+                              ? `Installed — ${(yorubaLiveStats?.totalSenses ?? YORUBA_PACK_MANIFEST.totalSenses).toLocaleString()} total senses, Tatoeba examples, etymology & conflict review data active.`
+                              : 'Not installed (optional). Core dictionary remains usable standalone offline with tonal exact and tone-insensitive search.'}
+                          </div>
+
+                          {isInstalled && (
+                            <div className="flex flex-wrap items-center gap-2">
+                              {!yorubaStatus.extendedInstalled ? (
+                                <button
+                                  type="button"
+                                  disabled={isYorubaExtendedBusy || isDownloading}
+                                  onClick={() => void handleInstallYorubaExtended()}
+                                  className="px-3 py-1.5 rounded-lg bg-[#1B382B] text-white text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                                >
+                                  <HardDriveDownload className="w-3.5 h-3.5" />
+                                  <span>
+                                    {isYorubaExtendedBusy
+                                      ? 'Installing Extended...'
+                                      : `Install Extended (${(
+                                          YORUBA_PACK_MANIFEST.extendedCompanion.compressedSizeBytes /
+                                          (1024 * 1024)
+                                        ).toFixed(2)} MB)`}
+                                  </span>
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleVerifyYorubaExtended()}
+                                    className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1F372C] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] flex items-center gap-1.5 cursor-pointer"
+                                  >
+                                    <ShieldCheck className="w-3.5 h-3.5" />
+                                    <span>Verify Extended</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isYorubaExtendedBusy}
+                                    onClick={() => void handleRemoveYorubaExtended()}
+                                    className="px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 text-[11px] font-semibold text-rose-700 dark:text-rose-300 flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span>Remove Extended Only</span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        {isInstalled && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void handleVerifyYoruba()}
+                              className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1F372C] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              <span>Verify Core</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={isRunningYorubaBenchmark}
+                              onClick={() => void handleRunYorubaBenchmark()}
+                              className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1F372C] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                            >
+                              <Gauge className="w-3.5 h-3.5" />
+                              <span>{isRunningYorubaBenchmark ? 'Running Benchmark...' : 'Run Benchmark'}</span>
+                            </button>
+                          </>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => setAttributionModalState({ lang: 'yo', tab: 'sources' })}
+                          className="px-3 py-1.5 rounded-lg bg-white dark:bg-[#1F372C] border border-slate-200 dark:border-slate-700 text-[11px] font-semibold text-[#204031] dark:text-[#7E9E88] flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Scale className="w-3.5 h-3.5" />
+                          <span>
+                            Licenses &amp; Conflict QA ({yorubaLiveStats?.conflictCount ?? YORUBA_PACK_MANIFEST.conflictCount})
+                          </span>
+                        </button>
+
+                        {isInstalled && (
+                          <button
+                            type="button"
+                            onClick={() => void handleRemoveYoruba()}
+                            className="px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 text-[11px] font-semibold text-rose-700 dark:text-rose-300 flex items-center gap-1.5 cursor-pointer ms-auto"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Remove Pack</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {yorubaVerifyMsg && (
+                        <div className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                          {yorubaVerifyMsg}
+                        </div>
+                      )}
+
+                      {yorubaBenchmarkReport && (
+                        <div className="p-2.5 rounded-xl bg-white dark:bg-[#101C16] border border-slate-200/80 dark:border-slate-800 text-[11px] font-mono space-y-1 text-slate-700 dark:text-slate-300" dir="ltr">
+                          <div>Exact: {yorubaBenchmarkReport.exactHeadwordMs} ms | Prefix: {yorubaBenchmarkReport.prefixQueryMs} ms</div>
+                          <div>FTS5: {yorubaBenchmarkReport.ftsDefinitionMs} ms | Normalized: {yorubaBenchmarkReport.normalizedQueryMs} ms</div>
+                          <div>Entries verified: {yorubaBenchmarkReport.totalEntriesVerified.toLocaleString()}</div>
                         </div>
                       )}
                     </div>
@@ -1157,9 +1586,10 @@ export const LanguageLibraryScreen: React.FC<LanguageLibraryScreenProps> = ({
       </section>
 
       <HausaAttributionAndReviewModal
-        isOpen={hausaAttributionModalTab !== null}
-        onClose={() => setHausaAttributionModalTab(null)}
-        initialTab={hausaAttributionModalTab || 'sources'}
+        isOpen={attributionModalState !== null}
+        onClose={() => setAttributionModalState(null)}
+        initialTab={attributionModalState?.tab || 'sources'}
+        language={attributionModalState?.lang || 'ha'}
       />
     </div>
   );
